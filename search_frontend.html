@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FactSphere · Search Hallucination Rater</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ── reset & base ─────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:       #0a0a14;
+      --bg2:      #10101e;
+      --bg3:      #181828;
+      --border:   rgba(255,255,255,0.07);
+      --accent:   #e94560;
+      --accent2:  #7f5af0;
+      --text:     #e2e8f0;
+      --muted:    #64748b;
+      --green:    #2ecc71;
+      --yellow:   #f39c12;
+      --red:      #e74c3c;
+      --card-r:   14px;
+      --shadow:   0 4px 32px rgba(0,0,0,0.5);
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── animated background grid ─────────────────────────────── */
+    .bg-grid {
+      position: fixed; inset: 0; z-index: 0;
+      background-image:
+        linear-gradient(135deg, #1a1a2e 0%, #0a0a14 60%),
+        repeating-linear-gradient(0deg,   transparent, transparent 40px, rgba(255,255,255,0.02) 40px, rgba(255,255,255,0.02) 41px),
+        repeating-linear-gradient(90deg,  transparent, transparent 40px, rgba(255,255,255,0.02) 40px, rgba(255,255,255,0.02) 41px);
+      pointer-events: none;
+    }
+    .bg-orb {
+      position: fixed; border-radius: 50%; filter: blur(120px); opacity: 0.18; z-index: 0;
+      pointer-events: none;
+      animation: pulse 6s ease-in-out infinite alternate;
+    }
+    .bg-orb-1 { width: 600px; height: 600px; background: #7f5af0; top: -200px; left: -200px; }
+    .bg-orb-2 { width: 500px; height: 500px; background: #e94560; bottom: -150px; right: -150px; animation-delay: 3s; }
+    @keyframes pulse { from { opacity: 0.12; } to { opacity: 0.22; } }
+
+    /* ── layout ───────────────────────────────────────────────── */
+    .wrapper {
+      position: relative; z-index: 1;
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 1.5rem 4rem;
+    }
+
+    /* ── header ───────────────────────────────────────────────── */
+    header {
+      text-align: center;
+      padding: 3.5rem 1rem 2rem;
+    }
+    .logo {
+      display: inline-flex; align-items: center; gap: 0.6rem;
+      font-size: 2.6rem; font-weight: 800; letter-spacing: -1px;
+      background: linear-gradient(135deg, #e94560, #7f5af0);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .logo-icon { font-size: 2.8rem; }
+    .tagline {
+      margin-top: 0.5rem;
+      color: var(--muted); font-size: 1rem; font-weight: 400;
+    }
+    .badge {
+      display: inline-block;
+      margin-top: 0.8rem;
+      padding: 0.25rem 0.9rem;
+      border-radius: 999px;
+      border: 1px solid rgba(127, 90, 240, 0.4);
+      background: rgba(127, 90, 240, 0.1);
+      color: #a78bfa; font-size: 0.78rem; font-weight: 600;
+    }
+
+    /* ── search panel ─────────────────────────────────────────── */
+    .search-panel {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 1.8rem 2rem;
+      backdrop-filter: blur(12px);
+      margin-bottom: 2rem;
+    }
+    .search-row {
+      display: flex; gap: 0.75rem; flex-wrap: wrap;
+    }
+    #query-input {
+      flex: 1; min-width: 200px;
+      background: rgba(255,255,255,0.05);
+      border: 1.5px solid rgba(255,255,255,0.1);
+      border-radius: 12px;
+      padding: 0.9rem 1.2rem;
+      font-size: 1rem; font-family: inherit; color: var(--text);
+      outline: none; transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    #query-input::placeholder { color: var(--muted); }
+    #query-input:focus {
+      border-color: var(--accent2);
+      box-shadow: 0 0 0 3px rgba(127,90,240,0.15);
+    }
+    .model-select {
+      background: rgba(255,255,255,0.05);
+      border: 1.5px solid rgba(255,255,255,0.1);
+      border-radius: 12px;
+      padding: 0.9rem 1rem;
+      font-size: 0.88rem; font-family: inherit; color: var(--text);
+      outline: none; cursor: pointer; min-width: 150px;
+      transition: border-color 0.2s;
+    }
+    .model-select:focus { border-color: var(--accent2); }
+    .model-select option { background: #10101e; }
+
+    .api-key-row {
+      display: flex; gap: 0.75rem; flex-wrap: wrap;
+      margin-bottom: 0.75rem;
+    }
+    #api-key-input {
+      flex: 1; min-width: 200px;
+      background: rgba(255,255,255,0.05);
+      border: 1.5px solid rgba(255,255,255,0.1);
+      border-radius: 12px;
+      padding: 0.75rem 1.2rem;
+      font-size: 0.88rem; font-family: inherit; color: var(--text);
+      outline: none; transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    #api-key-input::placeholder { color: var(--muted); }
+    #api-key-input:focus {
+      border-color: var(--accent2);
+      box-shadow: 0 0 0 3px rgba(127,90,240,0.15);
+    }
+    .api-key-hint {
+      font-size: 0.75rem; color: var(--muted); margin-top: 0.1rem;
+    }
+    .api-key-hint a { color: var(--accent2); text-decoration: none; }
+    .api-key-hint a:hover { text-decoration: underline; }
+
+    #search-btn {
+      background: linear-gradient(135deg, #e94560, #7f5af0);
+      color: #fff; border: none; border-radius: 12px;
+      padding: 0.9rem 1.8rem;
+      font-size: 0.95rem; font-weight: 700; font-family: inherit;
+      cursor: pointer; letter-spacing: 0.3px;
+      transition: transform 0.15s, box-shadow 0.15s, opacity 0.2s;
+      white-space: nowrap;
+    }
+    #search-btn:hover  { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(233,69,96,0.35); }
+    #search-btn:active { transform: translateY(0); }
+    #search-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    /* ── status message ───────────────────────────────────────── */
+    #status-msg {
+      margin-top: 1rem;
+      font-size: 0.85rem; color: var(--muted);
+      min-height: 1.2em; text-align: center;
+      transition: color 0.3s;
+    }
+    #status-msg.error { color: var(--red); }
+
+    /* ── summary bar ──────────────────────────────────────────── */
+    #summary-bar {
+      display: none;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      border-radius: var(--card-r);
+      padding: 1.4rem 1.8rem;
+      margin-bottom: 1.8rem;
+      display: none; align-items: center; flex-wrap: wrap; gap: 1.4rem;
+    }
+    #summary-bar.visible { display: flex; }
+    .summary-item { display: flex; flex-direction: column; gap: 0.2rem; }
+    .summary-label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+    .summary-value { font-size: 1.35rem; font-weight: 800; }
+    .summary-value.reliable  { color: var(--green); }
+    .summary-value.uncertain { color: var(--yellow); }
+    .summary-value.danger    { color: var(--red); }
+
+    /* ── avg track ────────────────────────────────────────────── */
+    .avg-track {
+      flex: 1; min-width: 200px;
+      height: 10px; background: rgba(255,255,255,0.08);
+      border-radius: 999px; overflow: hidden;
+    }
+    .avg-fill {
+      height: 100%; border-radius: 999px;
+      transition: width 0.8s cubic-bezier(.23,1,.32,1);
+      background: linear-gradient(90deg, var(--green), var(--yellow), var(--red));
+    }
+
+    /* ── results grid ─────────────────────────────────────────── */
+    #results-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 1.2rem;
+    }
+
+    /* ── result card ──────────────────────────────────────────── */
+    .card {
+      background: rgba(255,255,255,0.035);
+      border: 1px solid var(--border);
+      border-radius: var(--card-r);
+      padding: 1.4rem;
+      backdrop-filter: blur(8px);
+      transition: transform 0.2s, box-shadow 0.2s, border-color 0.3s;
+      animation: fadeSlideUp 0.4s ease both;
+    }
+    .card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 16px 40px rgba(0,0,0,0.4);
+      border-color: rgba(255,255,255,0.13);
+    }
+    @keyframes fadeSlideUp {
+      from { opacity:0; transform: translateY(18px); }
+      to   { opacity:1; transform: translateY(0); }
+    }
+
+    .card-header {
+      display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.8rem;
+    }
+    .source-pill {
+      font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.8px; border-radius: 999px;
+      padding: 0.22rem 0.65rem;
+    }
+    .pill-ddg   { background: rgba(255,85,0,0.15);  color: #ff8844; }
+    .pill-google{ background: rgba(66,133,244,0.15); color: #6ea8fe; }
+    .pill-bing  { background: rgba(0,188,212,0.15);  color: #4dd0e1; }
+    .pill-other { background: rgba(127,90,240,0.15); color: #a78bfa; }
+
+    .card-title {
+      font-size: 0.88rem; font-weight: 600; color: var(--text);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .card-url {
+      display: block; font-size: 0.72rem; color: var(--muted);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      text-decoration: none; margin-bottom: 0.9rem;
+    }
+    .card-url:hover { color: var(--accent2); }
+    .card-snippet {
+      font-size: 0.83rem; line-height: 1.6; color: #94a3b8;
+      display: -webkit-box; -webkit-line-clamp: 4;
+      -webkit-box-orient: vertical; overflow: hidden;
+      margin-bottom: 1.1rem;
+    }
+
+    /* ── gauge ────────────────────────────────────────────────── */
+    .gauge-row {
+      display: flex; align-items: center; gap: 1rem;
+    }
+    .gauge-ring-wrap {
+      position: relative; width: 68px; height: 68px; flex-shrink: 0;
+    }
+    .gauge-ring-wrap svg { transform: rotate(-90deg); }
+    .gauge-bg  { fill: none; stroke: rgba(255,255,255,0.07); stroke-width: 5; }
+    .gauge-arc {
+      fill: none; stroke-width: 5; stroke-linecap: round;
+      stroke-dasharray: 163; stroke-dashoffset: 163;
+      transition: stroke-dashoffset 1s cubic-bezier(.23,1,.32,1), stroke 0.5s;
+    }
+    .gauge-center {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.95rem; font-weight: 800;
+    }
+
+    .gauge-info { flex: 1; }
+    .verdict-badge {
+      display: inline-block; border-radius: 999px;
+      padding: 0.22rem 0.68rem;
+      font-size: 0.72rem; font-weight: 700;
+      margin-bottom: 0.35rem;
+    }
+    .badge-reliable  { background: rgba(46,204,113,0.15); color: var(--green); border: 1px solid rgba(46,204,113,0.25); }
+    .badge-uncertain { background: rgba(243,156,18,0.15); color: var(--yellow); border: 1px solid rgba(243,156,18,0.25); }
+    .badge-danger    { background: rgba(231,76,60,0.15);  color: var(--red);    border: 1px solid rgba(231,76,60,0.25); }
+
+    .gauge-reason { font-size: 0.75rem; color: var(--muted); line-height: 1.5; }
+
+    /* ── card left-border accent by verdict ───────────────────── */
+    .card.reliable  { border-left: 3px solid rgba(46,204,113,0.5); }
+    .card.uncertain { border-left: 3px solid rgba(243,156,18,0.5); }
+    .card.danger    { border-left: 3px solid rgba(231,76,60,0.5); }
+
+    /* ── loading skeleton ─────────────────────────────────────── */
+    .skeleton {
+      background: rgba(255,255,255,0.035);
+      border: 1px solid var(--border);
+      border-radius: var(--card-r);
+      padding: 1.4rem;
+      animation: shimmer 1.4s linear infinite;
+    }
+    @keyframes shimmer {
+      0%,100% { opacity: 0.4; }
+      50%      { opacity: 0.8; }
+    }
+    .skel-line {
+      background: rgba(255,255,255,0.07);
+      border-radius: 6px; margin-bottom: 0.6rem;
+    }
+
+    /* ── empty state ──────────────────────────────────────────── */
+    #empty-state {
+      display: none; text-align: center; padding: 4rem 1rem;
+    }
+    #empty-state.visible { display: block; }
+    .empty-icon { font-size: 3.5rem; margin-bottom: 1rem; }
+    .empty-title { font-size: 1.2rem; font-weight: 600; margin-bottom: 0.5rem; }
+    .empty-sub  { color: var(--muted); font-size: 0.9rem; }
+
+    /* ── legend ───────────────────────────────────────────────── */
+    .legend {
+      display: flex; gap: 1.4rem; flex-wrap: wrap;
+      justify-content: center; margin-top: 2.5rem;
+      font-size: 0.78rem; color: var(--muted);
+    }
+    .legend-item { display: flex; align-items: center; gap: 0.4rem; }
+    .legend-dot  { width: 10px; height: 10px; border-radius: 50%; }
+    .dot-green  { background: var(--green); }
+    .dot-yellow { background: var(--yellow); }
+    .dot-red    { background: var(--red); }
+
+    /* ── scrollbar ────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+
+    /* ── Google quota counter ────────────────────────────────── */
+    .quota-counter {
+      position: fixed;
+      bottom: 14px; right: 16px;
+      z-index: 100;
+      background: rgba(16,16,30,0.75);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 10px;
+      padding: 0.35rem 0.7rem;
+      backdrop-filter: blur(8px);
+      font-size: 0.7rem;
+      color: var(--muted);
+      display: none;
+      transition: opacity 0.3s;
+    }
+    .quota-counter .q-num {
+      font-weight: 700;
+      margin: 0 2px;
+    }
+    .quota-counter .q-num.low  { color: var(--yellow); }
+    .quota-counter .q-num.crit { color: var(--red); }
+
+    /* ── responsive ───────────────────────────────────────────── */
+    @media (max-width: 600px) {
+      .search-row { flex-direction: column; }
+      #search-btn { width: 100%; }
+      .model-select { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+<div class="bg-grid"></div>
+<div class="bg-orb bg-orb-1"></div>
+<div class="bg-orb bg-orb-2"></div>
+
+<div class="wrapper">
+
+  <!-- Header -->
+  <header>
+    <div class="logo"><span class="logo-icon">🔮</span> FactSphere</div>
+    <p class="tagline">Search the web · Rate hallucination per source · Powered by Groq Cloud LLM (Free)</p>
+    <div class="badge">Multi-Engine · Real-time Scoring · Groq API (Free)</div>
+  </header>
+
+  <!-- Settings Panel (API Key) -->
+  <div class="search-panel" id="settings-panel">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.8rem;">
+      <div style="display:flex; align-items:center; gap:0.5rem;">
+        <span style="font-size:1.1rem;">⚙️</span>
+        <span style="font-weight:700; font-size:0.95rem; color:var(--text);">API Settings</span>
+        <span id="key-status-badge" style="display:none; font-size:0.75rem; background:rgba(46,204,113,0.15); color:#2ecc71; border:1px solid rgba(46,204,113,0.3); padding:0.15rem 0.55rem; border-radius:999px; font-weight:600;">✅ Saved</span>
+      </div>
+      <button id="toggle-settings-btn" onclick="toggleSettings()" style="background:none; border:1px solid rgba(255,255,255,0.1); color:var(--muted); border-radius:8px; padding:0.3rem 0.7rem; font-size:0.78rem; cursor:pointer; font-family:inherit;">▼ Show</button>
+    </div>
+    <div id="settings-body" style="display:none;">
+      <div class="api-key-row">
+        <input
+          id="api-key-input"
+          type="password"
+          placeholder="🔑 Groq API Key (gsk_...)"
+          autocomplete="off"
+        />
+      </div>
+      <p class="api-key-hint" style="margin-bottom:0.8rem;">Get your free Groq key at <a href="https://console.groq.com" target="_blank">console.groq.com</a> → API Keys → Create.</p>
+      <div class="api-key-row">
+        <input
+          id="google-api-key-input"
+          type="password"
+          placeholder="🔑 Google API Key"
+          autocomplete="off"
+        />
+        <input
+          id="google-cx-input"
+          type="text"
+          placeholder="🔎 Google Search Engine ID (CX)"
+          autocomplete="off"
+          style="flex:1; min-width:180px; background:rgba(255,255,255,0.05); border:1.5px solid rgba(255,255,255,0.1); border-radius:12px; padding:0.75rem 1.2rem; font-size:0.88rem; font-family:inherit; color:var(--text); outline:none;"
+        />
+      </div>
+      <p class="api-key-hint" style="margin-bottom:0.8rem;">Get your free Google credentials: <a href="https://console.cloud.google.com/apis/credentials" target="_blank">API Key</a> · <a href="https://programmablesearchengine.google.com/" target="_blank">Search Engine ID</a> (100 free queries/day).</p>
+      <div style="display:flex; gap:0.5rem; margin-top:0.3rem;">
+        <button onclick="saveAllKeys()" style="background:linear-gradient(135deg,#2ecc71,#27ae60); color:#fff; border:none; border-radius:12px; padding:0.75rem 1.4rem; font-size:0.85rem; font-weight:700; cursor:pointer; font-family:inherit; white-space:nowrap;">💾 Save All Keys</button>
+        <button onclick="clearAllKeys()" style="background:rgba(231,76,60,0.15); color:#e74c3c; border:1px solid rgba(231,76,60,0.3); border-radius:12px; padding:0.75rem 1rem; font-size:0.85rem; font-weight:700; cursor:pointer; font-family:inherit; white-space:nowrap;">🗑️ Clear All</button>
+      </div>
+      <p class="api-key-hint" style="margin-top:0.4rem;">All keys are stored locally in your browser only.</p>
+    </div>
+  </div>
+
+  <!-- Search Panel -->
+  <div class="search-panel">
+    <div class="search-row">
+      <input
+        id="query-input"
+        type="text"
+        placeholder="Ask anything… e.g. Who invented the telephone?"
+        autocomplete="off"
+      />
+      <select id="model-select" class="model-select" title="Select Groq model">
+        <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile</option>
+        <option value="llama-3.1-8b-instant">llama-3.1-8b-instant</option>
+        <option value="meta-llama/llama-4-scout-17b-16e-instruct">llama-4-scout-17b</option>
+        <option value="qwen/qwen3-32b">qwen3-32b</option>
+      </select>
+      <button id="search-btn" onclick="doSearch()">🔍 Search &amp; Rate</button>
+    </div>
+    <div id="status-msg">Enter a question and click Search — results from Google, Bing &amp; DuckDuckGo will be scored for hallucination.</div>
+  </div>
+
+  <!-- Summary Bar -->
+  <div id="summary-bar">
+    <div class="summary-item">
+      <span class="summary-label">Sources Checked</span>
+      <span class="summary-value" id="sum-count">—</span>
+    </div>
+    <div class="summary-item">
+      <span class="summary-label">Avg Hallucination</span>
+      <span class="summary-value" id="sum-avg">—</span>
+    </div>
+    <div class="summary-item">
+      <span class="summary-label">Overall Risk</span>
+      <span class="summary-value" id="sum-verdict">—</span>
+    </div>
+    <div class="avg-track">
+      <div class="avg-fill" id="avg-fill" style="width:0%"></div>
+    </div>
+  </div>
+
+  <!-- Results Grid -->
+  <div id="results-grid"></div>
+
+  <!-- Empty State -->
+  <div id="empty-state">
+    <div class="empty-icon">🕵️</div>
+    <div class="empty-title">No results found</div>
+    <div class="empty-sub">Try a different query or check your internet connection.</div>
+  </div>
+
+  <!-- Legend -->
+  <div class="legend" id="legend" style="display:none">
+    <div class="legend-item"><span class="legend-dot dot-green"></span>  0–29 % Reliable</div>
+    <div class="legend-item"><span class="legend-dot dot-yellow"></span> 30–59 % Uncertain</div>
+    <div class="legend-item"><span class="legend-dot dot-red"></span>    60–100 % Likely Hallucinated</div>
+  </div>
+
+</div><!-- /wrapper -->
+
+<!-- Google API Quota Counter -->
+<div class="quota-counter" id="quota-counter">
+  🔍 Google: <span class="q-num" id="quota-num">100</span>/100 left today
+</div>
+
+<script>
+const BACKEND = "http://localhost:5050";
+
+/* ── API Key Management (localStorage) ───────────────────────── */
+const STORAGE_KEY        = "factsphere_groq_api_key";
+const STORAGE_GOOGLE_KEY = "factsphere_google_api_key";
+const STORAGE_GOOGLE_CX  = "factsphere_google_cx";
+
+function saveAllKeys() {
+  const groqKey   = document.getElementById("api-key-input").value.trim();
+  const googleKey = document.getElementById("google-api-key-input").value.trim();
+  const googleCx  = document.getElementById("google-cx-input").value.trim();
+
+  if (!groqKey) {
+    setStatus("⚠️ Please enter at least a Groq API key before saving.", true);
+    return;
+  }
+  localStorage.setItem(STORAGE_KEY, groqKey);
+  if (googleKey) localStorage.setItem(STORAGE_GOOGLE_KEY, googleKey);
+  if (googleCx)  localStorage.setItem(STORAGE_GOOGLE_CX, googleCx);
+
+  updateKeyStatus();
+  document.getElementById("settings-body").style.display = "none";
+  document.getElementById("toggle-settings-btn").textContent = "▼ Show";
+
+  const parts = ["Groq"];
+  if (googleKey && googleCx) parts.push("Google");
+  setStatus(`✅ ${parts.join(" + ")} key(s) saved! You can now search.`);
+  updateQuotaUI();
+}
+
+function clearAllKeys() {
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(STORAGE_GOOGLE_KEY);
+  localStorage.removeItem(STORAGE_GOOGLE_CX);
+  document.getElementById("api-key-input").value = "";
+  document.getElementById("google-api-key-input").value = "";
+  document.getElementById("google-cx-input").value = "";
+  updateKeyStatus();
+  setStatus("🗑️ All keys cleared.");
+  updateQuotaUI();
+}
+
+function loadAllKeys() {
+  const groq   = localStorage.getItem(STORAGE_KEY);
+  const gKey   = localStorage.getItem(STORAGE_GOOGLE_KEY);
+  const gCx    = localStorage.getItem(STORAGE_GOOGLE_CX);
+  if (groq) document.getElementById("api-key-input").value = groq;
+  if (gKey) document.getElementById("google-api-key-input").value = gKey;
+  if (gCx)  document.getElementById("google-cx-input").value = gCx;
+
+  updateKeyStatus();
+  if (groq) {
+    document.getElementById("settings-body").style.display = "none";
+    document.getElementById("toggle-settings-btn").textContent = "▼ Show";
+  } else {
+    document.getElementById("settings-body").style.display = "block";
+    document.getElementById("toggle-settings-btn").textContent = "▲ Hide";
+  }
+}
+
+function updateKeyStatus() {
+  const badge = document.getElementById("key-status-badge");
+  const hasGroq   = !!localStorage.getItem(STORAGE_KEY);
+  const hasGoogle = !!localStorage.getItem(STORAGE_GOOGLE_KEY) && !!localStorage.getItem(STORAGE_GOOGLE_CX);
+  if (hasGroq) {
+    badge.style.display = "inline-block";
+    badge.textContent = hasGoogle ? "✅ Groq + Google Saved" : "✅ Groq Saved";
+  } else {
+    badge.style.display = "none";
+  }
+}
+
+function toggleSettings() {
+  const body = document.getElementById("settings-body");
+  const btn  = document.getElementById("toggle-settings-btn");
+  if (body.style.display === "none") {
+    body.style.display = "block";
+    btn.textContent = "▲ Hide";
+  } else {
+    body.style.display = "none";
+    btn.textContent = "▼ Show";
+  }
+}
+
+function getApiKey() {
+  const v = document.getElementById("api-key-input").value.trim();
+  return v || localStorage.getItem(STORAGE_KEY) || "";
+}
+function getGoogleApiKey() {
+  const v = document.getElementById("google-api-key-input").value.trim();
+  return v || localStorage.getItem(STORAGE_GOOGLE_KEY) || "";
+}
+function getGoogleCx() {
+  const v = document.getElementById("google-cx-input").value.trim();
+  return v || localStorage.getItem(STORAGE_GOOGLE_CX) || "";
+}
+
+// Load saved keys on page load
+loadAllKeys();
+
+/* ── Google API Quota Tracking (localStorage, resets daily) ── */
+const QUOTA_KEY  = "factsphere_google_quota";
+const QUOTA_MAX  = 100;
+
+function getQuotaData() {
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  try {
+    const d = JSON.parse(localStorage.getItem(QUOTA_KEY));
+    if (d && d.date === today) return d;
+  } catch {}
+  // Reset for new day
+  const fresh = { date: today, used: 0 };
+  localStorage.setItem(QUOTA_KEY, JSON.stringify(fresh));
+  return fresh;
+}
+
+function getQuotaRemaining() {
+  return Math.max(0, QUOTA_MAX - getQuotaData().used);
+}
+
+function decrementQuota() {
+  const d = getQuotaData();
+  d.used = Math.min(QUOTA_MAX, d.used + 1);
+  localStorage.setItem(QUOTA_KEY, JSON.stringify(d));
+  updateQuotaUI();
+}
+
+function updateQuotaUI() {
+  const el  = document.getElementById("quota-counter");
+  const num = document.getElementById("quota-num");
+  const hasGoogle = getGoogleApiKey() && getGoogleCx();
+  if (!hasGoogle) { el.style.display = "none"; return; }
+  const rem = getQuotaRemaining();
+  el.style.display = "block";
+  num.textContent  = rem;
+  num.className    = "q-num" + (rem <= 10 ? " crit" : rem <= 30 ? " low" : "");
+}
+
+// Show counter on load if Google keys exist
+updateQuotaUI();
+
+/* ── allow Enter key ─────────────────────────────────────────── */
+document.getElementById("query-input").addEventListener("keydown", e => {
+  if (e.key === "Enter") doSearch();
+});
+
+/* ── helpers ──────────────────────────────────────────────────── */
+function pilClass(src) {
+  if (src === "DuckDuckGo") return "pill-ddg";
+  if (src === "Google")     return "pill-google";
+  if (src === "Bing")       return "pill-bing";
+  return "pill-other";
+}
+
+function verdictClass(score) {
+  if (score < 30)  return "reliable";
+  if (score < 60)  return "uncertain";
+  return "danger";
+}
+
+function verdictLabel(score) {
+  if (score < 30)  return "🟢 Reliable";
+  if (score < 60)  return "🟡 Uncertain";
+  return "🔴 Likely Hallucinated";
+}
+
+function badgeClass(score) {
+  if (score < 30)  return "badge-reliable";
+  if (score < 60)  return "badge-uncertain";
+  return "badge-danger";
+}
+
+function gaugeColor(score) {
+  if (score < 30)  return "#2ecc71";
+  if (score < 60)  return "#f39c12";
+  return "#e74c3c";
+}
+
+function setStatus(msg, isErr = false) {
+  const el = document.getElementById("status-msg");
+  el.textContent = msg;
+  el.className = isErr ? "error" : "";
+}
+
+/* ── skeleton loader ─────────────────────────────────────────── */
+function showSkeletons(n) {
+  const grid = document.getElementById("results-grid");
+  grid.innerHTML = "";
+  for (let i = 0; i < n; i++) {
+    grid.insertAdjacentHTML("beforeend", `
+      <div class="skeleton" style="animation-delay:${i*0.08}s">
+        <div class="skel-line" style="height:12px;width:60%;margin-bottom:1rem"></div>
+        <div class="skel-line" style="height:10px;width:90%"></div>
+        <div class="skel-line" style="height:10px;width:75%"></div>
+        <div class="skel-line" style="height:10px;width:82%"></div>
+        <div style="margin-top:1.2rem;display:flex;gap:1rem;align-items:center">
+          <div class="skel-line" style="height:64px;width:64px;flex-shrink:0;border-radius:50%"></div>
+          <div style="flex:1">
+            <div class="skel-line" style="height:12px;width:50%"></div>
+            <div class="skel-line" style="height:10px;width:80%"></div>
+          </div>
+        </div>
+      </div>
+    `);
+  }
+}
+
+/* ── render one card ─────────────────────────────────────────── */
+function renderCard(item, idx) {
+  const vc    = verdictClass(item.score);
+  const color = gaugeColor(item.score);
+  const r     = 26;
+  const circ  = 2 * Math.PI * r;   // ≈163.4
+  const offset = circ - (item.score / 100) * circ;
+  const delay  = idx * 0.07;
+
+  const safeTitle   = escHtml(item.title   || item.source);
+  const safeSnippet = escHtml(item.snippet || "No snippet available.");
+  const safeReason  = escHtml(item.reason  || "");
+  const safeUrl     = escHtml(item.url     || "#");
+  const displayUrl  = (item.url || "").replace(/^https?:\/\//, "").split("/")[0];
+
+  return `
+  <div class="card ${vc}" style="animation-delay:${delay}s">
+    <div class="card-header">
+      <span class="source-pill ${pilClass(item.source)}">${escHtml(item.source)}</span>
+      <span class="card-title">${safeTitle}</span>
+    </div>
+    <a class="card-url" href="${safeUrl}" target="_blank" rel="noopener">${displayUrl || safeUrl}</a>
+    <p class="card-snippet">${safeSnippet}</p>
+
+    <div class="gauge-row">
+      <!-- circular gauge -->
+      <div class="gauge-ring-wrap">
+        <svg width="68" height="68" viewBox="0 0 68 68">
+          <circle class="gauge-bg"  cx="34" cy="34" r="${r}"/>
+          <circle class="gauge-arc" cx="34" cy="34" r="${r}"
+            stroke="${color}"
+            style="stroke-dasharray:${circ.toFixed(1)};stroke-dashoffset:${circ.toFixed(1)}"
+            data-offset="${offset.toFixed(1)}"
+            id="arc-${idx}"
+          />
+        </svg>
+        <div class="gauge-center" style="color:${color}">${item.score}%</div>
+      </div>
+
+      <!-- verdict + reason -->
+      <div class="gauge-info">
+        <div class="verdict-badge ${badgeClass(item.score)}">${verdictLabel(item.score)}</div>
+        <p class="gauge-reason">${safeReason}</p>
+      </div>
+    </div>
+  </div>`;
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+/* ── animate arcs after DOM insertion ───────────────────────── */
+function animateArcs() {
+  document.querySelectorAll(".gauge-arc").forEach(arc => {
+    const target = parseFloat(arc.dataset.offset);
+    setTimeout(() => { arc.style.strokeDashoffset = target; }, 50);
+  });
+}
+
+/* ── main search function ────────────────────────────────────── */
+async function doSearch() {
+  const query          = document.getElementById("query-input").value.trim();
+  const model          = document.getElementById("model-select").value;
+  const api_key        = getApiKey();
+  const google_api_key = getGoogleApiKey();
+  const google_cx      = getGoogleCx();
+
+  if (!api_key) {
+    setStatus("⚠️ Please enter your Groq API key first. Get one free at console.groq.com", true);
+    return;
+  }
+  if (!query) {
+    setStatus("⚠️ Please enter a question first.", true);
+    return;
+  }
+
+  // reset UI
+  document.getElementById("empty-state").classList.remove("visible");
+  document.getElementById("summary-bar").classList.remove("visible");
+  document.getElementById("legend").style.display = "none";
+  document.getElementById("search-btn").disabled = true;
+  showSkeletons(6);
+  const engines = google_api_key && google_cx ? "Google API, Bing & DuckDuckGo" : "Bing & DuckDuckGo";
+  setStatus(`🔍 Searching ${engines} for "${query}" (using Groq ${model})…`);
+
+  try {
+    const res  = await fetch(`${BACKEND}/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, model, api_key, google_api_key, google_cx })
+    });
+
+    if (!res.ok) throw new Error(`Server error: ${res.status}`);
+    const data = await res.json();
+
+    const grid = document.getElementById("results-grid");
+    grid.innerHTML = "";
+
+    if (!data.results || data.results.length === 0) {
+      document.getElementById("empty-state").classList.add("visible");
+      setStatus("No results returned. Check your internet connection.");
+    } else {
+      // Render cards
+      grid.innerHTML = data.results.map((item, i) => renderCard(item, i)).join("");
+      animateArcs();
+
+      // Update summary
+      const avg  = data.avg_hallucination ?? 0;
+      const vc   = verdictClass(avg);
+      document.getElementById("sum-count").textContent   = `${data.results.length}`;
+      document.getElementById("sum-avg").textContent     = `${avg.toFixed(1)}%`;
+      document.getElementById("sum-avg").className       = `summary-value ${vc}`;
+      document.getElementById("sum-verdict").textContent = verdictLabel(avg);
+      document.getElementById("sum-verdict").className   = `summary-value ${vc}`;
+      document.getElementById("avg-fill").style.width    = `${avg}%`;
+      document.getElementById("summary-bar").classList.add("visible");
+      document.getElementById("legend").style.display    = "flex";
+
+      setStatus(`✅ Scored ${data.results.length} results from Google, Bing & DuckDuckGo using ${model}.`);
+
+      // Decrement Google quota if Google keys were used
+      if (google_api_key && google_cx) decrementQuota();
+    }
+  } catch (err) {
+    document.getElementById("results-grid").innerHTML = "";
+    setStatus(`❌ Error: ${err.message} — Make sure search_backend.py is running on port 5050.`, true);
+  } finally {
+    document.getElementById("search-btn").disabled = false;
+  }
+}
+</script>
+</body>
+</html>
