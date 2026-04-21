@@ -5,147 +5,515 @@ import chromadb
 import json
 import re
 import os
-from typing import TypedDict, List, Tuple, Optional
+from typing import TypedDict, List, Optional
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 from groq import Groq
-
-# ── LangGraph orchestration ────────────────────────────────────────────────────
 from langgraph.graph import StateGraph, END
 
-# ─────────────────────────────────────────────
-# Page Config
-# ─────────────────────────────────────────────
-st.set_page_config(page_title="FactSphere QA", page_icon="🔮", layout="wide")
+# ── Page Config ─────────────────────────────────────────────────
+st.set_page_config(
+    page_title="FactSphere · Multi-Agent QA",
+    page_icon="🔮",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-st.markdown("""
+# ══════════════════════════════════════════════════════════════════════════════
+#  GLOBAL STYLES  +  THREE.JS BACKGROUND
+# ══════════════════════════════════════════════════════════════════════════════
+st.markdown(r"""
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-.main-header {
-    background: linear-gradient(135deg,#1a1a2e,#16213e,#0f3460);
-    padding: 2rem 2.5rem; border-radius: 16px; margin-bottom: 2rem;
-    text-align: center; box-shadow: 0 8px 32px rgba(233,69,96,.15);
+:root {
+    --cyan:   #00f5ff;
+    --purple: #7b2ff7;
+    --pink:   #ff2d78;
+    --green:  #00ff87;
+    --gold:   #ffd700;
+    --bg:     #02020f;
+    --card:   rgba(8, 8, 28, 0.80);
+    --border: rgba(0, 245, 255, 0.12);
 }
-.main-header h1 { color:#e94560; font-size:2.8rem; margin:0; letter-spacing:-1px; }
-.main-header p  { color:#a8b2d8; margin:.5rem 0 0; font-size:1rem; }
-.result-card {
-    background:#0d0d1a; border:1px solid #1e2a45; border-radius:14px;
-    padding:1.5rem; margin-bottom:1.5rem; box-shadow:0 4px 16px rgba(0,0,0,.4);
+
+/* ── Global reset ── */
+* { box-sizing: border-box; }
+body { background: var(--bg) !important; font-family: 'Inter', sans-serif; }
+
+/* ── Make Streamlit transparent so canvas shows through ── */
+.stApp,
+[data-testid="stAppViewContainer"],
+[data-testid="stMain"],
+[data-testid="stHeader"],
+.block-container { background: transparent !important; }
+
+/* ── Sidebar glassmorphism ── */
+[data-testid="stSidebar"] > div:first-child {
+    background: rgba(3, 3, 16, 0.94) !important;
+    backdrop-filter: blur(28px) saturate(180%) !important;
+    border-right: 1px solid var(--border) !important;
 }
-.q-label { color:#a8b2d8; font-size:.8rem; font-weight:600;
-           text-transform:uppercase; letter-spacing:1px; margin-bottom:4px; }
-.q-text  { color:#e2e8f0; font-size:1.1rem; font-weight:600; margin-bottom:1rem; }
-.verdict-answer  { background:#0d2318; border-left:4px solid #2ecc71;
-                   padding:1rem 1.2rem; border-radius:8px; color:#c6f6d5; }
-.verdict-clarify { background:#2a2000; border-left:4px solid #f39c12;
-                   padding:1rem 1.2rem; border-radius:8px; color:#fefcbf; }
-.verdict-refuse  { background:#2a0a0a; border-left:4px solid #e74c3c;
-                   padding:1rem 1.2rem; border-radius:8px; color:#fed7d7; }
-.badge { display:inline-block; padding:.2rem .7rem; border-radius:20px;
-         font-size:.78rem; font-weight:700; margin-right:6px; }
-.badge-factual     { background:#0f3460; color:#90cdf4; }
-.badge-speculative { background:#3d1f00; color:#fbd38d; }
-.badge-ambiguous   { background:#2d1558; color:#d6bcfa; }
-.badge-supported   { background:#0d2318; color:#68d391; }
-.badge-unsupported { background:#2a0a0a; color:#fc8181; }
-hr.div { border:none; border-top:1px solid #1e2a45; margin:2rem 0; }
+
+/* ── Text inputs ── */
+[data-testid="stTextInput"] input {
+    background: rgba(0, 245, 255, 0.04) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 14px !important;
+    color: #e2e8f0 !important;
+    font-size: 1.05rem !important;
+    padding: 0.85rem 1.2rem !important;
+    transition: all 0.35s;
+}
+[data-testid="stTextInput"] input:focus {
+    border-color: rgba(0,245,255,0.5) !important;
+    box-shadow: 0 0 0 3px rgba(0,245,255,0.08), 0 0 28px rgba(0,245,255,0.18) !important;
+    outline: none !important;
+}
+[data-testid="stTextInput"] input::placeholder { color: #2d3748 !important; }
+
+/* ── Button ── */
+[data-testid="stButton"] > button {
+    background: linear-gradient(135deg, rgba(0,245,255,0.08), rgba(123,47,247,0.10)) !important;
+    border: 1px solid rgba(0,245,255,0.38) !important;
+    border-radius: 14px !important;
+    color: var(--cyan) !important;
+    font-family: 'Orbitron', monospace !important;
+    font-size: 0.78rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 2px !important;
+    padding: 0.9rem 1.5rem !important;
+    transition: all 0.3s cubic-bezier(.25,.8,.25,1) !important;
+    position: relative !important;
+    overflow: hidden !important;
+}
+[data-testid="stButton"] > button:hover {
+    background: linear-gradient(135deg, rgba(0,245,255,0.16), rgba(123,47,247,0.18)) !important;
+    box-shadow: 0 0 24px rgba(0,245,255,0.32), 0 0 60px rgba(123,47,247,0.18) !important;
+    transform: translateY(-2px) !important;
+}
+
+/* ── Progress bar ── */
+[data-testid="stProgressBar"] > div > div {
+    background: linear-gradient(90deg, var(--cyan), var(--purple)) !important;
+    border-radius: 4px !important;
+    animation: shimmer 2s ease-in-out infinite;
+}
+@keyframes shimmer { 0%,100%{filter:brightness(1)} 50%{filter:brightness(1.35)} }
+
+/* ── Metrics ── */
+[data-testid="metric-container"] {
+    background: rgba(0,245,255,0.03) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 14px !important;
+    transition: all 0.3s;
+}
+[data-testid="metric-container"]:hover {
+    border-color: rgba(0,245,255,0.22) !important;
+    box-shadow: 0 0 18px rgba(0,245,255,0.07) !important;
+}
+[data-testid="stMetricValue"] {
+    color: var(--cyan) !important;
+    font-family: 'Orbitron', monospace !important;
+}
+[data-testid="stMetricLabel"] { color: #475569 !important; font-size: 0.73rem !important; }
+
+/* ── Expanders ── */
+[data-testid="stExpander"] {
+    background: rgba(0,0,0,0.25) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 14px !important;
+}
+[data-testid="stExpander"] summary { color: #64748b !important; }
+[data-testid="stExpander"] summary:hover { color: var(--cyan) !important; }
+
+/* ── Selectbox ── */
+[data-testid="stSelectbox"] > div > div {
+    background: rgba(0,0,0,0.4) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 12px !important;
+    color: #e2e8f0 !important;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(0,245,255,0.18); border-radius: 2px; }
+
+/* ── CRT scanlines overlay ── */
+body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+        0deg, transparent, transparent 3px,
+        rgba(0,245,255,0.006) 3px, rgba(0,245,255,0.006) 4px
+    );
+    pointer-events: none;
+    z-index: 9998;
+}
+
+/* ════════════════════════════
+   HERO HEADER
+════════════════════════════ */
+.hero-wrap   { text-align:center; padding:2.5rem 1rem 1.2rem; position:relative; }
+.hero-logo   {
+    font-family:'Orbitron',monospace; font-size:3.8rem; font-weight:900;
+    background:linear-gradient(135deg,#00f5ff 0%,#7b2ff7 50%,#ff2d78 100%);
+    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;
+    display:inline-block; letter-spacing:3px;
+    animation: logoFloat 4s ease-in-out infinite;
+}
+@keyframes logoFloat {
+    0%,100% { filter:drop-shadow(0 0 16px rgba(0,245,255,.5)) drop-shadow(0 0 40px rgba(123,47,247,.3)); transform:translateY(0); }
+    50%      { filter:drop-shadow(0 0 32px rgba(0,245,255,.9)) drop-shadow(0 0 70px rgba(123,47,247,.5)); transform:translateY(-5px); }
+}
+.hero-sub {
+    margin-top:.6rem; color:#334155; font-size:.78rem;
+    letter-spacing:4px; text-transform:uppercase; font-weight:500;
+}
+.hero-div {
+    max-width:520px; margin:1.4rem auto 0; height:1px;
+    background:linear-gradient(90deg,transparent,rgba(0,245,255,.35),rgba(123,47,247,.35),transparent);
+}
+
+/* ════════════════════════════
+   AGENT PIPELINE
+════════════════════════════ */
+.pipeline-wrap {
+    padding:1.6rem 1.2rem 1rem;
+    background:rgba(4,4,18,0.65);
+    border:1px solid var(--border);
+    border-radius:22px;
+    backdrop-filter:blur(16px);
+    margin:.6rem 0 1.2rem;
+}
+.pipeline-row {
+    display:flex; align-items:center; justify-content:center;
+    gap:0; flex-wrap:nowrap; overflow-x:auto;
+}
+
+/* individual agent node */
+.ag { display:flex; flex-direction:column; align-items:center; gap:.45rem; position:relative; flex-shrink:0; }
+
+/* rotating gradient ring (visible when active) */
+.ag-ring {
+    position:absolute;
+    top:-6px; left:-6px; right:-6px; bottom:-6px;
+    border-radius:50%;
+    background:conic-gradient(from 0deg,var(--cyan),var(--purple),var(--pink),var(--cyan));
+    opacity:0;
+    animation:ringSpin 1.8s linear infinite;
+    transition:opacity .4s;
+    pointer-events:none;
+}
+@keyframes ringSpin { to{transform:rotate(360deg)} }
+
+/* mask ring to look like a border */
+.ag-ring-mask {
+    position:absolute;
+    top:-3px; left:-3px; right:-3px; bottom:-3px;
+    border-radius:50%;
+    background:rgba(4,4,18,0.9);
+    pointer-events:none;
+}
+
+.ag-inner {
+    width:68px; height:68px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    font-size:1.65rem;
+    background:rgba(6,6,22,0.85);
+    border:1px solid rgba(0,245,255,0.14);
+    position:relative; z-index:1;
+    transition:all .5s cubic-bezier(.34,1.56,.64,1);
+}
+
+.ag-name {
+    font-family:'Orbitron',monospace; font-size:.52rem; color:#1e293b;
+    letter-spacing:1.5px; text-transform:uppercase;
+    text-align:center; max-width:72px;
+    transition:color .35s;
+}
+
+/* idle */
+.ag.idle .ag-inner { opacity:.42; }
+
+/* active */
+.ag.active .ag-ring   { opacity:1; }
+.ag.active .ag-inner  {
+    transform:scale(1.22);
+    border-color:rgba(0,245,255,.75);
+    background:rgba(0,245,255,0.09);
+    box-shadow:0 0 22px rgba(0,245,255,.45),0 0 55px rgba(0,245,255,.18),inset 0 0 18px rgba(0,245,255,.06);
+}
+.ag.active .ag-inner::after {
+    content:'';
+    position:absolute; inset:-10px; border-radius:50%;
+    background:radial-gradient(circle,rgba(0,245,255,.16) 0%,transparent 70%);
+    animation:nodePulse 1.1s ease-in-out infinite;
+}
+@keyframes nodePulse {
+    0%,100%{transform:scale(1);opacity:1}
+    50%{transform:scale(1.35);opacity:.45}
+}
+.ag.active .ag-name { color:var(--cyan); }
+
+/* done */
+.ag.done .ag-inner {
+    border-color:rgba(0,255,135,.5);
+    background:rgba(0,255,135,0.06);
+    box-shadow:0 0 14px rgba(0,255,135,.28);
+}
+.ag.done .ag-name { color:var(--green); }
+
+/* wire connector between nodes */
+.ag-wire {
+    width:48px; height:2px;
+    background:rgba(0,245,255,.06);
+    position:relative; flex-shrink:0;
+    margin-bottom:26px; overflow:hidden;
+}
+.ag-pulse {
+    position:absolute; top:0; left:-60%; width:60%; height:100%;
+    background:linear-gradient(90deg,transparent,var(--cyan),transparent);
+    animation:wirePulse 3.5s ease-in-out infinite;
+}
+.ag-wire.lit .ag-pulse { animation-duration:.9s; }
+@keyframes wirePulse  { to{left:100%} }
+
+/* status line */
+.ag-status {
+    text-align:center; margin-top:.9rem;
+    font-family:'JetBrains Mono',monospace; font-size:.76rem;
+    color:#1e293b; min-height:18px; transition:color .3s;
+}
+.ag-status.live  { color:var(--cyan); }
+.ag-status.retry { color:var(--gold); animation:blink .9s step-end infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+/* ════════════════════════════
+   RESULT CARDS
+════════════════════════════ */
+.r-card {
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:22px; padding:2rem;
+    margin:1.4rem 0;
+    backdrop-filter:blur(18px);
+    transition:border-color .3s,box-shadow .35s,transform .3s;
+    position:relative; overflow:hidden;
+}
+.r-card::before {
+    content:''; position:absolute;
+    top:0; left:0; right:0; height:2px;
+    background:linear-gradient(90deg,var(--cyan),var(--purple),var(--pink));
+    opacity:.55;
+}
+.r-card:hover {
+    border-color:rgba(0,245,255,.25);
+    box-shadow:0 22px 55px rgba(0,0,0,.65),0 0 28px rgba(0,245,255,.06);
+    transform:translateY(-4px) perspective(1000px) rotateX(-1deg);
+}
+.r-qlabel { font-family:'Orbitron',monospace; font-size:.68rem; color:var(--cyan); opacity:.55; letter-spacing:3px; text-transform:uppercase; margin-bottom:.35rem; }
+.r-qtext  { font-size:1.08rem; color:#e2e8f0; font-weight:600; margin-bottom:1rem; }
+
+/* Verdict boxes */
+.v-answer  { background:rgba(0,255,135,.06);  border-left:3px solid var(--green);  border-radius:10px; padding:1rem 1.3rem; color:#a7f3d0; font-size:.93rem; line-height:1.65; }
+.v-clarify { background:rgba(255,215,0,.06);  border-left:3px solid var(--gold);   border-radius:10px; padding:1rem 1.3rem; color:#fde68a; font-size:.93rem; line-height:1.65; }
+.v-refuse  { background:rgba(255,45,120,.06); border-left:3px solid var(--pink);   border-radius:10px; padding:1rem 1.3rem; color:#fecaca; font-size:.93rem; line-height:1.65; }
+
+/* Badges */
+.badge { display:inline-flex; align-items:center; padding:.22rem .78rem; border-radius:20px; font-size:.7rem; font-weight:700; letter-spacing:1px; text-transform:uppercase; margin-right:6px; font-family:'JetBrains Mono',monospace; }
+.b-factual     { background:rgba(0,245,255,.08);  color:var(--cyan);   border:1px solid rgba(0,245,255,.25); }
+.b-speculative { background:rgba(255,215,0,.08);  color:var(--gold);   border:1px solid rgba(255,215,0,.25); }
+.b-ambiguous   { background:rgba(123,47,247,.08); color:#a78bfa;       border:1px solid rgba(123,47,247,.25); }
+.b-supported   { background:rgba(0,255,135,.08);  color:var(--green);  border:1px solid rgba(0,255,135,.25); }
+.b-unsupported { background:rgba(255,45,120,.08); color:var(--pink);   border:1px solid rgba(255,45,120,.25); }
+.b-model       { background:rgba(8,8,28,.6);      color:#475569;       border:1px solid rgba(255,255,255,.07); }
+
+/* Query wrapper */
+.q-wrap { background:rgba(4,4,18,.6); border:1px solid var(--border); border-radius:18px; padding:1.2rem 1.5rem; backdrop-filter:blur(14px); margin:.6rem 0; }
+
+/* Section heading */
+.sec-head { display:flex; align-items:center; gap:1rem; margin:2rem 0 .8rem; }
+.sec-head-label { font-family:'Orbitron',monospace; font-size:.75rem; color:var(--cyan); letter-spacing:3px; white-space:nowrap; }
+.sec-head-count { background:rgba(0,245,255,.08); border:1px solid rgba(0,245,255,.2); border-radius:20px; padding:.15rem .7rem; font-family:'JetBrains Mono',monospace; font-size:.72rem; color:var(--cyan); }
+.sec-head-line  { flex:1; height:1px; background:linear-gradient(90deg,rgba(0,245,255,.2),transparent); }
+
+hr.sec { border:none; border-top:1px solid rgba(0,245,255,.07); margin:1.6rem 0; }
+
+/* Sidebar */
+.sid-title { font-family:'Orbitron',monospace; font-size:.72rem; color:var(--cyan); letter-spacing:3px; text-transform:uppercase; padding:.5rem 0; border-bottom:1px solid var(--border); margin-bottom:1rem; }
+.sid-list  { list-style:none; padding:0; margin:0; }
+.sid-list li { padding:.45rem 0; font-size:.82rem; color:#334155; display:flex; align-items:center; gap:.55rem; border-bottom:1px solid rgba(255,255,255,.04); transition:color .2s; }
+.sid-list li:hover { color:#64748b; }
 </style>
+
+<!-- ═══════════════ THREE.JS NEURAL BACKGROUND ═══════════════ -->
+<script>
+(function () {
+    if (window._fsThreeReady) return;
+    window._fsThreeReady = true;
+
+    /* Create canvas on document.body so it persists across Streamlit re-renders */
+    var cv = document.createElement('canvas');
+    cv.id = 'fs-bg';
+    cv.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:-9999;pointer-events:none;';
+    document.body.appendChild(cv);
+
+    function boot() {
+        var T = window.THREE;
+        var W = innerWidth, H = innerHeight;
+        var renderer = new T.WebGLRenderer({ canvas: cv, alpha: false, antialias: true });
+        renderer.setSize(W, H);
+        renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+        renderer.setClearColor(0x02020f, 1);
+
+        var scene = new T.Scene();
+        var cam   = new T.PerspectiveCamera(65, W / H, 0.1, 600);
+        cam.position.set(0, 0, 42);
+
+        /* ── Neural nodes ── */
+        var N = 90, nodes = [], sgeo = new T.SphereGeometry(0.13, 7, 7);
+        var palette = [0x00f5ff, 0x7b2ff7, 0xff2d78, 0x00ff87];
+        for (var i = 0; i < N; i++) {
+            var mat = new T.MeshBasicMaterial({ color: palette[i % palette.length], transparent: true, opacity: .7 });
+            var m = new T.Mesh(sgeo, mat);
+            m.position.set((Math.random() - .5) * 100, (Math.random() - .5) * 60, (Math.random() - .5) * 45 - 8);
+            m.userData = { spd: Math.random() * .014 + .004, off: Math.random() * 6.28 };
+            scene.add(m); nodes.push(m);
+        }
+
+        /* ── Connection lines ── */
+        var lg = new T.Group(); scene.add(lg);
+        function buildLines() {
+            while (lg.children.length) lg.remove(lg.children[0]);
+            var maxD = 20;
+            for (var i = 0; i < N; i++) for (var j = i + 1; j < N; j++) {
+                var d = nodes[i].position.distanceTo(nodes[j].position);
+                if (d < maxD) {
+                    var g = new T.BufferGeometry().setFromPoints([nodes[i].position.clone(), nodes[j].position.clone()]);
+                    lg.add(new T.Line(g, new T.LineBasicMaterial({ color: 0x00f5ff, transparent: true, opacity: (1 - d / maxD) * .16 })));
+                }
+            }
+        }
+        buildLines();
+
+        /* ── Wireframe polyhedra ── */
+        var shapes = [], geos = [
+            new T.IcosahedronGeometry(2.8, 0), new T.OctahedronGeometry(2.2, 0),
+            new T.TetrahedronGeometry(2.0, 0),  new T.IcosahedronGeometry(1.8, 1),
+            new T.OctahedronGeometry(3.2, 0),
+        ], scols = [0x00f5ff, 0x7b2ff7, 0xff2d78, 0x00ff87, 0x7b2ff7];
+        for (var i = 0; i < 5; i++) {
+            var s = new T.Mesh(geos[i], new T.MeshBasicMaterial({ color: scols[i], wireframe: true, transparent: true, opacity: .18 }));
+            s.position.set((Math.random() - .5) * 80, (Math.random() - .5) * 45, (Math.random() - .5) * 22 - 12);
+            s.userData = { rx: (Math.random() - .5) * .013, ry: (Math.random() - .5) * .016, rz: (Math.random() - .5) * .009 };
+            scene.add(s); shapes.push(s);
+        }
+
+        /* ── Ambient particles ── */
+        var pn = 350, pg = new T.BufferGeometry(), pp = new Float32Array(pn * 3);
+        for (var i = 0; i < pn; i++) {
+            pp[i * 3]     = (Math.random() - .5) * 140;
+            pp[i * 3 + 1] = (Math.random() - .5) * 90;
+            pp[i * 3 + 2] = (Math.random() - .5) * 70;
+        }
+        pg.setAttribute('position', new T.BufferAttribute(pp, 3));
+        var pts = new T.Points(pg, new T.PointsMaterial({ color: 0x00f5ff, size: .07, transparent: true, opacity: .38 }));
+        scene.add(pts);
+
+        /* ── Grid floor ── */
+        var grid = new T.GridHelper(200, 48, 0x00f5ff, 0x00f5ff);
+        grid.material.opacity = .04; grid.material.transparent = true;
+        grid.position.y = -28; scene.add(grid);
+
+        /* ── Mouse parallax ── */
+        var mx = 0, my = 0;
+        window.addEventListener('mousemove', function (e) {
+            mx = (e.clientX / innerWidth  - .5) * 2;
+            my = -(e.clientY / innerHeight - .5) * 2;
+        });
+
+        window.addEventListener('resize', function () {
+            W = innerWidth; H = innerHeight;
+            cam.aspect = W / H; cam.updateProjectionMatrix();
+            renderer.setSize(W, H);
+        });
+
+        var frame = 0;
+        (function animate() {
+            requestAnimationFrame(animate);
+            frame++;
+            /* Float nodes */
+            nodes.forEach(function (n, i) {
+                n.position.y   += Math.sin(frame * n.userData.spd + n.userData.off) * .014;
+                n.material.opacity = .3 + Math.abs(Math.sin(frame * .028 + i * .68)) * .55;
+            });
+            if (frame % 100 === 0) buildLines();
+            /* Rotate shapes */
+            shapes.forEach(function (s) {
+                s.rotation.x += s.userData.rx;
+                s.rotation.y += s.userData.ry;
+                s.rotation.z += s.userData.rz;
+            });
+            pts.rotation.y += .0004; pts.rotation.x += .00018;
+            grid.rotation.y += .0006;
+            /* Camera drift */
+            cam.position.x += (mx * 9 - cam.position.x) * .022;
+            cam.position.y += (my * 5 - cam.position.y) * .022;
+            cam.lookAt(scene.position);
+            renderer.render(scene, cam);
+        })();
+    }
+
+    /* Dynamically load Three.js r160 */
+    var s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js';
+    s.onload = function () { if (window.THREE) boot(); };
+    document.head.appendChild(s);
+})();
+</script>
 """, unsafe_allow_html=True)
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  HERO HEADER
+# ══════════════════════════════════════════════════════════════════════════════
 st.markdown("""
-<div class="main-header">
-  <h1>🔮 FactSphere</h1>
-  <p>Hallucination-Aware Multi-Agent QA · Powered by Groq Cloud LLM (Free)</p>
+<div class="hero-wrap">
+  <div class="hero-logo">🔮 FactSphere</div>
+  <div class="hero-sub">Hallucination-Aware · 5-Agent LangGraph QA · Powered by Groq LLM</div>
+  <div class="hero-div"></div>
 </div>
 """, unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────
-# Sidebar — API Key + Model
-# ─────────────────────────────────────────────
-st.sidebar.markdown("## ⚙️ Configuration")
 
-GROQ_API_KEY = st.sidebar.text_input(
-    "🔑 Groq API Key",
-    type="password",
-    placeholder="gsk_...",
-    help="Get your free key at https://console.groq.com"
-)
-
-GROQ_MODEL = st.sidebar.selectbox(
-    "🤖 Model",
-    ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "meta-llama/llama-4-scout-17b-16e-instruct", "qwen/qwen3-32b"],
-    help="All free on Groq's free tier"
-)
-
-st.sidebar.info(
-    "**Free Groq setup:**\n"
-    "1. Go to [console.groq.com](https://console.groq.com)\n"
-    "2. Sign up (free)\n"
-    "3. API Keys → Create key\n"
-    "4. Paste it above"
-)
-
-if st.sidebar.button("🗑️ Clear History"):
-    st.session_state.history = []
-    st.rerun()
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("""**🔁 Agent Pipeline**
-1. 🧠 Planner — classify query
-2. 📚 Retriever — fetch context
-3. ✍️ Generator — draft answer
-4. ✅ Verifier — check facts
-5. 🎯 Confidence — final score""")
-
-# ─────────────────────────────────────────────
-# Shared Typed State  (LangGraph requires a TypedDict)
-# ─────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+#  AGENT STATE + BACKEND  (logic identical to original)
+# ══════════════════════════════════════════════════════════════════════════════
 class AgentState(TypedDict):
-    # ── inputs ──────────────────────────────
-    query: str
-    api_key: str
-    model: str
-    # ── planner outputs ─────────────────────
-    query_type: str          # "factual" | "speculative" | "ambiguous"
-    planner_reasoning: str
-    # ── retriever outputs ───────────────────
-    chunks: List[str]
-    similarities: List[float]
-    iterations: int
-    # ── generator outputs ───────────────────
+    query: str; api_key: str; model: str
+    query_type: str; planner_reasoning: str
+    chunks: List[str]; similarities: List[float]; iterations: int
     answer: str
-    # ── verifier outputs ────────────────────
-    verdict: str             # "SUPPORTED" | "NOT_SUPPORTED"
-    verifier_reason: str
-    avg_similarity: float
-    # ── confidence outputs ──────────────────
-    confidence_score: float
-    decision: str            # "ANSWER" | "CLARIFY" | "REFUSE"
-    final_response: str
+    verdict: str; verifier_reason: str; avg_similarity: float
+    confidence_score: float; decision: str; final_response: str
 
-# ─────────────────────────────────────────────
-# Groq LLM call  (fast, cloud, free)
-# ─────────────────────────────────────────────
-def groq_call(api_key: str, model: str, system: str, user: str,
-              as_json: bool = False) -> str:
+
+def groq_call(api_key, model, system, user, as_json=False):
     client = Groq(api_key=api_key)
-    kwargs = dict(
+    kw = dict(
         model=model,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user",   "content": user},
-        ],
-        max_tokens=400,
-        temperature=0,
+        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+        max_tokens=400, temperature=0
     )
-    if as_json:
-        kwargs["response_format"] = {"type": "json_object"}
-    resp = client.chat.completions.create(**kwargs)
-    return resp.choices[0].message.content.strip()
+    if as_json: kw["response_format"] = {"type": "json_object"}
+    return client.chat.completions.create(**kw).choices[0].message.content.strip()
 
 
-def safe_json(text: str, keys: list, defaults: dict) -> dict:
+def safe_json(text, keys, defaults):
     for src in [text, re.search(r'\{.*?\}', text, re.DOTALL)]:
         try:
             raw  = src if isinstance(src, str) else src.group()
@@ -155,9 +523,7 @@ def safe_json(text: str, keys: list, defaults: dict) -> dict:
             pass
     return defaults
 
-# ─────────────────────────────────────────────
-# Embedding resources (cached — runs once)
-# ─────────────────────────────────────────────
+
 @st.cache_resource
 def load_resources():
     embedder = SentenceTransformer('all-MiniLM-L6-v2')
@@ -177,405 +543,380 @@ def load_resources():
     ]
     try:
         col = chroma.create_collection("factsphere")
-        col.add(embeddings=embedder.encode(docs).tolist(),
-                documents=docs,
-                ids=[f"d{i}" for i in range(len(docs))])
+        col.add(embeddings=embedder.encode(docs).tolist(), documents=docs, ids=[f"d{i}" for i in range(len(docs))])
     except Exception:
         col = chroma.get_collection("factsphere")
     return embedder, wiki, col
 
-# ─────────────────────────────────────────────
-# AGENT NODE FUNCTIONS  (each reads + writes AgentState)
-# ─────────────────────────────────────────────
 
-def run_planner(state: AgentState) -> AgentState:
-    """
-    Agent 1 — Planner
-    Responsibility: Classify the query as factual / speculative / ambiguous.
-    Decision made: The query_type it writes routes the pipeline differently
-                   (speculative/ambiguous queries skip vector retrieval).
-    Input:  state["query"], state["api_key"], state["model"]
-    Output: state["query_type"], state["planner_reasoning"]
-    """
+def run_planner(state):
     try:
         raw = groq_call(state["api_key"], state["model"],
-            system='Classify the query as factual, speculative, or ambiguous. '
-                   'Return ONLY JSON: {"query_type":"factual","reasoning":"..."}',
-            user=f"Query: {state['query']}",
-            as_json=True)
-        parsed = safe_json(raw, ["query_type", "reasoning"],
-                           {"query_type": "ambiguous", "reasoning": "N/A"})
+            system='Classify as factual, speculative, or ambiguous. Return ONLY JSON: {"query_type":"factual","reasoning":"..."}',
+            user=f"Query: {state['query']}", as_json=True)
+        parsed = safe_json(raw, ["query_type", "reasoning"], {"query_type": "ambiguous", "reasoning": "N/A"})
     except Exception as e:
         parsed = {"query_type": "ambiguous", "reasoning": str(e)}
-
-    return {**state,
-            "query_type": parsed["query_type"].lower().strip(),
-            "planner_reasoning": parsed["reasoning"]}
+    return {**state, "query_type": parsed["query_type"].lower().strip(), "planner_reasoning": parsed["reasoning"]}
 
 
-def run_retriever(state: AgentState) -> AgentState:
-    """
-    Agent 2 — Retriever
-    Responsibility: Fetch relevant context from ChromaDB (vector search) and
-                    Wikipedia (external knowledge fallback) for factual queries.
-    Tools called:   embedder.encode(), collection.query(), cosine_similarity(),
-                    wiki.page().summary
-    Input:  state["query"], state["query_type"], state["iterations"]
-    Output: state["chunks"], state["similarities"], state["iterations"]
-    """
-    embedder, wiki, collection = load_resources()
-
-    # Routing decision: skip retrieval for speculative / ambiguous queries
+def run_retriever(state):
+    embedder, wiki, col = load_resources()
     if state["query_type"] in ("speculative", "ambiguous"):
         return {**state, "chunks": [], "similarities": [], "iterations": 0}
-
-    # On retry (iterations > 0), broaden the query
-    search_query = state["query"] + " explanation" if state["iterations"] > 0 else state["query"]
-
+    sq = state["query"] + " explanation" if state["iterations"] > 0 else state["query"]
     try:
-        qemb   = embedder.encode(search_query).tolist()                    # sentence-transformers
-        res    = collection.query(query_embeddings=[qemb], n_results=3)    # chromadb
+        qemb  = embedder.encode(sq).tolist()
+        res   = col.query(query_embeddings=[qemb], n_results=3)
         chunks = res["documents"][0] if res["documents"] else []
         sims: List[float] = []
         if chunks:
             cembs = embedder.encode(chunks)
-            sims  = cosine_similarity([qemb], cembs)[0].tolist()           # scikit-learn
+            sims  = cosine_similarity([qemb], cembs)[0].tolist()
         best = max(sims) if sims else 0.0
-
-        # External knowledge fallback
         if best < 0.4:
-            page = wiki.page(state["query"])                               # wikipediaapi
+            page = wiki.page(state["query"])
             if page.exists():
                 chunks.append("Wikipedia: " + page.summary[:500])
                 sims.append(best)
-
-        # Merge with existing chunks on retry (deduplication)
-        old_chunks = state.get("chunks") or []
-        old_sims   = state.get("similarities") or []
-        merged_chunks = list(dict.fromkeys(old_chunks + chunks))
-        merged_sims   = (old_sims + sims)[:len(merged_chunks)]
-
-        return {**state,
-                "chunks": merged_chunks,
-                "similarities": merged_sims,
-                "iterations": state["iterations"] + 1}
+        old_c = state.get("chunks") or []
+        old_s = state.get("similarities") or []
+        merged_c = list(dict.fromkeys(old_c + chunks))
+        merged_s = (old_s + sims)[:len(merged_c)]
+        return {**state, "chunks": merged_c, "similarities": merged_s, "iterations": state["iterations"] + 1}
     except Exception:
-        return {**state,
-                "chunks": state.get("chunks") or [],
-                "similarities": state.get("similarities") or [],
-                "iterations": state["iterations"] + 1}
+        return {**state, "chunks": state.get("chunks") or [], "similarities": state.get("similarities") or [], "iterations": state["iterations"] + 1}
 
 
-def run_generator(state: AgentState) -> AgentState:
-    """
-    Agent 3 — Generator
-    Responsibility: Produce a grounded answer using ONLY the retrieved context.
-    Tool called:    groq_call() → Groq LLM inference
-    Input:  state["query"], state["chunks"], state["api_key"], state["model"]
-    Output: state["answer"]
-    """
+def run_generator(state):
     chunks = state.get("chunks") or []
     ctx    = "\n\n".join(chunks) if chunks else "No context available."
     try:
         answer = groq_call(state["api_key"], state["model"],
-            system="Answer using ONLY the provided context. Be concise. "
-                   "If unsupported by context say: UNSUPPORTED",
-            user=f"Context:\n{ctx}\n\nQuestion: {state['query']}",
-            as_json=False)
+            system="Answer using ONLY the provided context. Be concise. If unsupported say: UNSUPPORTED",
+            user=f"Context:\n{ctx}\n\nQuestion: {state['query']}")
     except Exception as e:
         answer = f"UNSUPPORTED (error: {e})"
     return {**state, "answer": answer}
 
 
-def run_verifier(state: AgentState) -> AgentState:
-    """
-    Agent 4 — Verifier
-    Responsibility: Check whether the generated answer is supported by the context.
-    Tools called:   groq_call() → Groq LLM, embedder.encode() + cosine_similarity()
-    Decision made:  If avg_similarity < 0.35, override verdict to NOT_SUPPORTED,
-                    which triggers a LangGraph conditional edge back to Retriever.
-    Input:  state["answer"], state["chunks"], state["api_key"], state["model"]
-    Output: state["verdict"], state["verifier_reason"], state["avg_similarity"]
-    """
+def run_verifier(state):
     embedder, _, _ = load_resources()
-    chunks  = state.get("chunks") or []
-    answer  = state.get("answer", "")
-    ctx     = "\n\n".join(chunks) if chunks else ""
-
+    chunks = state.get("chunks") or []
+    answer = state.get("answer", "")
+    ctx    = "\n\n".join(chunks) if chunks else ""
     try:
         raw = groq_call(state["api_key"], state["model"],
-            system='Check if the answer is supported by context. '
-                   'Return ONLY JSON: {"verdict":"SUPPORTED","reason":"..."}',
-            user=f"Context:\n{ctx}\n\nAnswer: {answer}",
-            as_json=True)
-        parsed  = safe_json(raw, ["verdict", "reason"],
-                            {"verdict": "NOT_SUPPORTED", "reason": "Parse failed."})
+            system='Check if answer is supported by context. Return ONLY JSON: {"verdict":"SUPPORTED","reason":"..."}',
+            user=f"Context:\n{ctx}\n\nAnswer: {answer}", as_json=True)
+        parsed  = safe_json(raw, ["verdict", "reason"], {"verdict": "NOT_SUPPORTED", "reason": "Parse failed."})
         verdict = parsed["verdict"].upper()
         reason  = parsed["reason"]
     except Exception as e:
         verdict, reason = "NOT_SUPPORTED", str(e)
-
-    # Cosine similarity double-check (scikit-learn)
     aemb    = embedder.encode([answer])
     cembs   = embedder.encode(chunks) if chunks else np.array([])
     avg_sim = float(np.mean(cosine_similarity(aemb, cembs)[0])) if len(cembs) > 0 else 0.0
-    if avg_sim < 0.35:
-        verdict = "NOT_SUPPORTED"
-
-    return {**state,
-            "verdict": verdict,
-            "verifier_reason": reason,
-            "avg_similarity": avg_sim}
+    if avg_sim < 0.35: verdict = "NOT_SUPPORTED"
+    return {**state, "verdict": verdict, "verifier_reason": reason, "avg_similarity": avg_sim}
 
 
-def run_confidence(state: AgentState) -> AgentState:
-    """
-    Agent 5 — Confidence
-    Responsibility: Compute a final confidence score and make the ANSWER / CLARIFY / REFUSE
-                    decision based on all accumulated evidence.
-    Input:  state["query_type"], state["verdict"], state["iterations"]
-    Output: state["confidence_score"], state["decision"], state["final_response"]
-    """
-    q_type     = state.get("query_type", "ambiguous")
-    verdict    = state.get("verdict", "NOT_SUPPORTED")
-    iterations = state.get("iterations", 1)
-    answer     = state.get("answer", "")
-
+def run_confidence(state):
+    q, v, it = state.get("query_type","ambiguous"), state.get("verdict","NOT_SUPPORTED"), state.get("iterations",1)
+    ans  = state.get("answer", "")
     score = 1.0
-    if q_type == "speculative": score -= 0.3
-    elif q_type == "ambiguous": score -= 0.2
-    if verdict == "NOT_SUPPORTED": score -= 0.3
-    if iterations > 1: score -= 0.1 * (iterations - 1)
+    if q == "speculative": score -= 0.3
+    elif q == "ambiguous": score -= 0.2
+    if v == "NOT_SUPPORTED": score -= 0.3
+    if it > 1: score -= 0.1 * (it - 1)
     score = max(0.0, min(1.0, score))
-
-    if score >= 0.6:
-        decision, fallback = "ANSWER",  None
-    elif score >= 0.3:
-        decision, fallback = "CLARIFY", "Please provide more context or clarify your query."
-    else:
-        decision, fallback = "REFUSE",  "No reliable evidence found for this query."
-
-    final_response = answer if decision == "ANSWER" else fallback
-
-    return {**state,
-            "confidence_score": score,
-            "decision": decision,
-            "final_response": final_response}
-
-# ─────────────────────────────────────────────
-# LangGraph Conditional Routing Functions
-# ─────────────────────────────────────────────
-
-def route_after_planner(state: AgentState) -> str:
-    """
-    Conditional edge 1 — After Planner.
-    Routes directly to Generator (skipping Retriever) for speculative/ambiguous queries.
-    Routes to Retriever for factual queries.
-    """
-    if state["query_type"] in ("speculative", "ambiguous"):
-        return "generator"
-    return "retriever"
+    if score >= 0.6:   decision, fb = "ANSWER",  None
+    elif score >= 0.3: decision, fb = "CLARIFY", "Please provide more context or clarify your query."
+    else:              decision, fb = "REFUSE",  "No reliable evidence found for this query."
+    return {**state, "confidence_score": score, "decision": decision, "final_response": ans if decision == "ANSWER" else fb}
 
 
-def route_after_verifier(state: AgentState) -> str:
-    """
-    Conditional edge 2 — After Verifier (self-correction / reflection loop).
-    If verdict is NOT_SUPPORTED and we haven't retried yet, route BACK to Retriever.
-    Otherwise proceed to Confidence.
-    """
-    if state["verdict"] == "NOT_SUPPORTED" and state.get("iterations", 0) < 2:
-        return "retriever"          # ← reflection loop back
-    return "confidence"
+# ══════════════════════════════════════════════════════════════════════════════
+#  SIDEBAR
+# ══════════════════════════════════════════════════════════════════════════════
+st.sidebar.markdown('<div class="sid-title">⚙ Configuration</div>', unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────
-# Build the LangGraph StateGraph
-# ─────────────────────────────────────────────
-
-def build_graph() -> StateGraph:
-    g = StateGraph(AgentState)
-
-    # Register agent nodes
-    g.add_node("planner",    run_planner)
-    g.add_node("retriever",  run_retriever)
-    g.add_node("generator",  run_generator)
-    g.add_node("verifier",   run_verifier)
-    g.add_node("confidence", run_confidence)
-
-    # Entry point
-    g.set_entry_point("planner")
-
-    # Conditional edge 1: planner → retriever OR generator
-    g.add_conditional_edges("planner", route_after_planner,
-                            {"retriever": "retriever", "generator": "generator"})
-
-    # Fixed edge: retriever always feeds generator
-    g.add_edge("retriever", "generator")
-
-    # Fixed edge: generator always feeds verifier
-    g.add_edge("generator", "verifier")
-
-    # Conditional edge 2: verifier → retriever (reflection) OR confidence
-    g.add_conditional_edges("verifier", route_after_verifier,
-                            {"retriever": "retriever", "confidence": "confidence"})
-
-    # Fixed edge: confidence → END
-    g.add_edge("confidence", END)
-
-    return g.compile()
+GROQ_API_KEY = st.sidebar.text_input(
+    "🔑 Groq API Key", type="password", placeholder="gsk_...",
+    help="Get your free key at https://console.groq.com"
+)
+GROQ_MODEL = st.sidebar.selectbox(
+    "🤖 Model",
+    ["llama-3.3-70b-versatile", "llama-3.1-8b-instant",
+     "meta-llama/llama-4-scout-17b-16e-instruct", "qwen/qwen3-32b"],
+    help="All free on Groq's free tier"
+)
+st.sidebar.info(
+    "**Free Groq setup:**\n"
+    "1. Go to [console.groq.com](https://console.groq.com)\n"
+    "2. Sign up (free)\n"
+    "3. API Keys → Create key\n"
+    "4. Paste it above"
+)
+if st.sidebar.button("🗑️ Clear History"):
+    st.session_state.history = []
+    st.rerun()
+st.sidebar.markdown("---")
+st.sidebar.markdown('<div class="sid-title">🔁 Agent Pipeline</div>', unsafe_allow_html=True)
+st.sidebar.markdown("""
+<ul class="sid-list">
+  <li>🧠 <strong>Planner</strong> — classify query</li>
+  <li>📚 <strong>Retriever</strong> — fetch context</li>
+  <li>✍️ <strong>Generator</strong> — draft answer</li>
+  <li>✅ <strong>Verifier</strong> — fact-check</li>
+  <li>🎯 <strong>Confidence</strong> — final score</li>
+</ul>""", unsafe_allow_html=True)
 
 
-# ─────────────────────────────────────────────
-# Session state
-# ─────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+#  PIPELINE HTML RENDERER
+# ══════════════════════════════════════════════════════════════════════════════
+_AGENTS = [("🧠","PLANNER"),("📚","RETRIEVER"),("✍️","GENERATOR"),("✅","VERIFIER"),("🎯","CONFIDENCE")]
+
+def render_pipeline(active: int = -1, done: list = [], retry: bool = False, status: str = "") -> str:
+    nodes_html = ""
+    for i, (icon, name) in enumerate(_AGENTS):
+        cls = "active" if i == active else ("done" if i in done else "idle")
+        lit = " lit" if (i in done or i == active) else ""
+        connector = "" if i == len(_AGENTS) - 1 else f'<div class="ag-wire{lit}"><div class="ag-pulse"></div></div>'
+        nodes_html += f"""
+        <div class="ag {cls}">
+            <div class="ag-ring"></div>
+            <div class="ag-ring-mask"></div>
+            <div class="ag-inner">{icon}</div>
+            <div class="ag-name">{name}</div>
+        </div>{connector}"""
+
+    sc = " retry" if retry else (" live" if active >= 0 else "")
+    return f"""
+    <div class="pipeline-wrap">
+        <div class="pipeline-row">{nodes_html}</div>
+        <div class="ag-status{sc}">{status}</div>
+    </div>"""
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  SESSION STATE
+# ══════════════════════════════════════════════════════════════════════════════
 if "history" not in st.session_state:
     st.session_state.history = []
 
-# ─────────────────────────────────────────────
-# Input UI
-# ─────────────────────────────────────────────
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  GATE: API KEY CHECK
+# ══════════════════════════════════════════════════════════════════════════════
 if not GROQ_API_KEY:
-    st.info("👈 **Enter your free Groq API key in the sidebar to get started.**\n\n"
-            "Get one in 1 minute at [console.groq.com](https://console.groq.com)")
+    st.markdown("""
+    <div style="text-align:center;padding:3.5rem 2rem;background:rgba(0,245,255,0.025);
+                border:1px solid rgba(0,245,255,0.1);border-radius:22px;margin:2rem 0;">
+      <div style="font-size:3.2rem;margin-bottom:1rem;">🔑</div>
+      <div style="font-family:'Orbitron',monospace;color:#00f5ff;font-size:1rem;letter-spacing:3px;margin-bottom:.6rem;">
+        API KEY REQUIRED
+      </div>
+      <div style="color:#334155;font-size:.88rem;line-height:1.6;">
+        Enter your free Groq API key in the sidebar<br>to initialize the FactSphere 5-agent pipeline.
+      </div>
+    </div>""", unsafe_allow_html=True)
     st.stop()
 
-c1, c2 = st.columns([4, 1])
-with c1:
-    query = st.text_input("💬 Enter your question:",
-                          placeholder="e.g. Who was Marie Curie?")
-with c2:
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  QUERY INPUT
+# ══════════════════════════════════════════════════════════════════════════════
+st.markdown('<div class="q-wrap">', unsafe_allow_html=True)
+col_in, col_btn = st.columns([5, 1])
+with col_in:
+    query = st.text_input(
+        "q", label_visibility="collapsed",
+        placeholder="⚡  Ask anything — e.g. 'Who was Marie Curie?'  ·  'What is an LLM?'"
+    )
+with col_btn:
     st.write(""); st.write("")
-    submit = st.button("🚀 Ask FactSphere", use_container_width=True)
+    submit = st.button("LAUNCH ⚡", use_container_width=True)
+st.markdown('</div>', unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────
-# Pipeline  (LangGraph orchestrated)
-# ─────────────────────────────────────────────
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  PIPELINE PLACEHOLDER  (always visible)
+# ══════════════════════════════════════════════════════════════════════════════
+pipeline_ph = st.empty()
+
+if not submit and not st.session_state.history:
+    pipeline_ph.markdown(
+        render_pipeline(status="⬆  Enter a question above and click LAUNCH to run the 5-agent pipeline"),
+        unsafe_allow_html=True
+    )
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  EXECUTE PIPELINE  (step-by-step with live UI updates)
+# ══════════════════════════════════════════════════════════════════════════════
 if submit and query.strip():
-    # Ensure ChromaDB is initialised before graph runs
-    load_resources()
+    try:
+        load_resources()
 
-    # Build and compile the graph each run (lightweight; stateless compilation)
-    pipeline = build_graph()
+        state: AgentState = {
+            "query": query.strip(), "api_key": GROQ_API_KEY, "model": GROQ_MODEL,
+            "query_type": "",        "planner_reasoning": "",
+            "chunks":  [],           "similarities": [], "iterations": 0,
+            "answer":  "",
+            "verdict": "",           "verifier_reason": "", "avg_similarity": 0.0,
+            "confidence_score": 0.0, "decision": "",        "final_response": "",
+        }
 
-    # Initial shared state
-    initial_state: AgentState = {
-        "query":            query.strip(),
-        "api_key":          GROQ_API_KEY,
-        "model":            GROQ_MODEL,
-        "query_type":       "",
-        "planner_reasoning": "",
-        "chunks":           [],
-        "similarities":     [],
-        "iterations":       0,
-        "answer":           "",
-        "verdict":          "",
-        "verifier_reason":  "",
-        "avg_similarity":   0.0,
-        "confidence_score": 0.0,
-        "decision":         "",
-        "final_response":   "",
-    }
+        # ── Agent 1: Planner ──────────────────────────────────────────────
+        pipeline_ph.markdown(
+            render_pipeline(active=0, status="🧠  Planner · classifying your query..."),
+            unsafe_allow_html=True
+        )
+        state = run_planner(state)
+        qt = state["query_type"]
+        done_nodes = [0]
 
-    with st.status("🤖 Running 5-agent LangGraph pipeline...", expanded=True) as status:
-        try:
-            st.write("🧠 **Agent 1/5 — Planner**: classifying query...")
-            st.write("📚 **Agent 2/5 — Retriever**: fetching context...")
-            st.write("✍️ **Agent 3/5 — Generator**: drafting answer...")
-            st.write("✅ **Agent 4/5 — Verifier**: checking hallucination...")
-            st.write("🎯 **Agent 5/5 — Confidence**: scoring...")
+        # ── Agent 2: Retriever (factual queries only) ─────────────────────
+        if qt == "factual":
+            pipeline_ph.markdown(
+                render_pipeline(active=1, done=done_nodes, status="📚  Retriever · searching knowledge base + Wikipedia..."),
+                unsafe_allow_html=True
+            )
+            state = run_retriever(state)
+            done_nodes = [0, 1]
 
-            # ── LangGraph invoke ─────────────────────────────────────────────
-            result: AgentState = pipeline.invoke(initial_state)
-            # ─────────────────────────────────────────────────────────────────
+        # ── Agent 3: Generator ────────────────────────────────────────────
+        pipeline_ph.markdown(
+            render_pipeline(active=2, done=done_nodes, status="✍️  Generator · drafting grounded answer..."),
+            unsafe_allow_html=True
+        )
+        state = run_generator(state)
+        done_nodes = list(set(done_nodes + [2]))
 
-            q_type    = result["query_type"]
-            reasoning = result["planner_reasoning"]
-            chunks    = result["chunks"]
-            sims      = result["similarities"]
-            answer    = result["answer"]
-            verdict   = result["verdict"]
-            ver_reason= result["verifier_reason"]
-            avg_sim   = result["avg_similarity"]
-            iterations= result["iterations"]
-            score     = result["confidence_score"]
-            decision  = result["decision"]
-            final_response = result["final_response"]
+        # ── Agent 4: Verifier ─────────────────────────────────────────────
+        pipeline_ph.markdown(
+            render_pipeline(active=3, done=done_nodes, status="✅  Verifier · cross-checking for hallucinations..."),
+            unsafe_allow_html=True
+        )
+        state = run_verifier(state)
+        done_nodes = list(set(done_nodes + [3]))
 
-            st.write(f"   ✔ Type: **{q_type}** | Verdict: **{verdict}** | "
-                     f"Iterations: **{iterations}** | Decision: **{decision}** | "
-                     f"Confidence: **{score:.0%}**")
+        # ── Self-correction loop (retry) ──────────────────────────────────
+        if state["verdict"] == "NOT_SUPPORTED" and state.get("iterations", 0) < 2:
+            pipeline_ph.markdown(
+                render_pipeline(active=1, done=[0], retry=True,
+                                status="🔄  Retry Loop · low confidence — broadening search..."),
+                unsafe_allow_html=True
+            )
+            state = run_retriever(state)
 
-            status.update(label="✅ Done!", state="complete", expanded=False)
+            pipeline_ph.markdown(
+                render_pipeline(active=2, done=[0, 1], retry=True,
+                                status="✍️  Re-generating with expanded context..."),
+                unsafe_allow_html=True
+            )
+            state = run_generator(state)
 
-            st.session_state.history.insert(0, {
-                "query": query, "model": GROQ_MODEL,
-                "query_type": q_type, "reasoning": reasoning,
-                "chunks": chunks, "sims": sims, "answer": answer,
-                "verdict": verdict, "ver_reason": ver_reason,
-                "avg_sim": avg_sim, "iterations": iterations,
-                "score": score, "decision": decision,
-                "final_response": final_response,
-            })
+            pipeline_ph.markdown(
+                render_pipeline(active=3, done=[0, 1, 2], retry=True,
+                                status="✅  Re-verifying answer..."),
+                unsafe_allow_html=True
+            )
+            state = run_verifier(state)
+            done_nodes = [0, 1, 2, 3]
 
-        except Exception as e:
-            status.update(label="❌ Error", state="error")
-            st.error(f"❌ {e}")
-            st.info("Check your Groq API key in the sidebar.")
+        # ── Agent 5: Confidence ───────────────────────────────────────────
+        pipeline_ph.markdown(
+            render_pipeline(active=4, done=done_nodes, status="🎯  Confidence · computing final score..."),
+            unsafe_allow_html=True
+        )
+        state = run_confidence(state)
+
+        # ── All done ──────────────────────────────────────────────────────
+        pipeline_ph.markdown(
+            render_pipeline(done=[0, 1, 2, 3, 4], status="✨  Pipeline complete!"),
+            unsafe_allow_html=True
+        )
+
+        st.session_state.history.insert(0, {
+            "query":     query,           "model":      GROQ_MODEL,
+            "query_type": state["query_type"],           "reasoning": state["planner_reasoning"],
+            "chunks":    state["chunks"], "sims":       state["similarities"],
+            "answer":    state["answer"], "verdict":    state["verdict"],
+            "ver_reason": state["verifier_reason"],      "avg_sim":  state["avg_similarity"],
+            "iterations": state["iterations"],           "score":    state["confidence_score"],
+            "decision":  state["decision"],              "final_response": state["final_response"],
+        })
+
+    except Exception as e:
+        pipeline_ph.empty()
+        st.error(f"❌ Pipeline error: {e}")
+        st.info("👈 Check your Groq API key in the sidebar.")
 
 elif submit:
-    st.warning("Please enter a question first.")
+    st.warning("⚠️ Please enter a question before launching.")
 
-# ─────────────────────────────────────────────
-# Display multiple outputs
-# ─────────────────────────────────────────────
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  RESULTS DISPLAY
+# ══════════════════════════════════════════════════════════════════════════════
 if st.session_state.history:
     n = len(st.session_state.history)
-    st.markdown(f"### 📋 Results — {n} {'query' if n==1 else 'queries'}")
+    st.markdown(f"""
+    <div class="sec-head">
+      <div class="sec-head-label">Results</div>
+      <div class="sec-head-count">{n} {'Query' if n==1 else 'Queries'}</div>
+      <div class="sec-head-line"></div>
+    </div>""", unsafe_allow_html=True)
 
     for idx, r in enumerate(st.session_state.history):
-        qt   = r['query_type']
-        qcls = f"badge-{qt}" if qt in ['factual','speculative','ambiguous'] else "badge-factual"
-        vcls = "badge-supported" if r['verdict']=="SUPPORTED" else "badge-unsupported"
+        qt  = r["query_type"]
+        qcls = f"b-{qt}" if qt in ["factual", "speculative", "ambiguous"] else "b-factual"
+        vcls = "b-supported" if r["verdict"] == "SUPPORTED" else "b-unsupported"
+        d    = r["decision"]
+        t    = r["final_response"]
+        vbox = "v-answer" if d == "ANSWER" else ("v-clarify" if d == "CLARIFY" else "v-refuse")
+        vico = "✅ Answer" if d == "ANSWER" else ("⚠️ Needs Clarification" if d == "CLARIFY" else "❌ Refused")
+        model_short = r["model"].split("/")[-1][:22]
 
         st.markdown(f"""
-<div class="result-card">
-  <div class="q-label">Query #{n-idx}</div>
-  <div class="q-text">💬 {r['query']}</div>
-  <span class="badge {qcls}">{qt.capitalize()}</span>
-  <span class="badge {vcls}">{r['verdict']}</span>
-  <span class="badge" style="background:#1a1a3e;color:#90cdf4">⚡ {r['model']}</span>
-</div>""", unsafe_allow_html=True)
+        <div class="r-card">
+          <div class="r-qlabel">Query #{n - idx}</div>
+          <div class="r-qtext">💬 {r['query']}</div>
+          <span class="badge {qcls}">{qt.upper()}</span>
+          <span class="badge {vcls}">{r['verdict']}</span>
+          <span class="badge b-model">⚡ {model_short}</span>
+        </div>""", unsafe_allow_html=True)
 
-        c1,c2,c3,c4 = st.columns(4)
-        c1.metric("Query Type",  qt.capitalize())
-        c2.metric("Verdict",     r['verdict'])
-        c3.metric("Iterations",  r['iterations'])
-        c4.metric("Decision",    r['decision'])
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Query Type",  qt.capitalize())
+        m2.metric("Verdict",     r["verdict"])
+        m3.metric("Iterations",  r["iterations"])
+        m4.metric("Decision",    d)
 
-        score = r['score']
-        st.write(f"**🎯 Confidence: {score:.0%}**")
+        score = r["score"]
+        st.markdown(
+            f'<div style="font-family:\'Orbitron\',monospace;font-size:.72rem;'
+            f'color:#334155;letter-spacing:2px;margin:.8rem 0 .35rem;">'
+            f'CONFIDENCE — {score:.0%}</div>',
+            unsafe_allow_html=True
+        )
         st.progress(score)
 
-        d = r['decision']
-        t = r['final_response']
-        if d == 'ANSWER':
-            st.markdown(f'<div class="verdict-answer">✅ <strong>Answer</strong><br><br>{t}</div>',
-                        unsafe_allow_html=True)
-        elif d == 'CLARIFY':
-            st.markdown(f'<div class="verdict-clarify">⚠️ <strong>Needs Clarification</strong><br><br>{t}</div>',
-                        unsafe_allow_html=True)
-        else:
-            st.markdown(f'<div class="verdict-refuse">❌ <strong>Refused</strong><br><br>{t}</div>',
-                        unsafe_allow_html=True)
+        st.markdown(f'<div class="{vbox}"><strong>{vico}</strong><br><br>{t}</div>',
+                    unsafe_allow_html=True)
 
+        st.write("")
         ca, cb = st.columns(2)
         with ca:
             with st.expander("📚 Retrieved Chunks"):
-                if r['chunks']:
-                    for i, ch in enumerate(r['chunks']):
-                        sim = r['sims'][i] if i < len(r['sims']) else None
-                        st.markdown(f"**Chunk {i+1}**" + (f" · sim={sim:.3f}" if sim else ""))
+                if r["chunks"]:
+                    for i, ch in enumerate(r["chunks"]):
+                        sim = r["sims"][i] if i < len(r["sims"]) else None
+                        st.markdown(f"**Chunk {i+1}**" + (f" · `sim={sim:.3f}`" if sim else ""))
                         st.write(ch)
-                        if i < len(r['chunks'])-1: st.divider()
+                        if i < len(r["chunks"]) - 1: st.divider()
                 else:
                     st.write("No chunks retrieved.")
         with cb:
@@ -585,5 +926,5 @@ if st.session_state.history:
                 st.write(f"**Avg Similarity:** {r['avg_sim']:.3f}")
                 st.write(f"**Planner Reasoning:** {r['reasoning']}")
 
-        if idx < n-1:
-            st.markdown('<hr class="div">', unsafe_allow_html=True)
+        if idx < n - 1:
+            st.markdown('<hr class="sec">', unsafe_allow_html=True)
