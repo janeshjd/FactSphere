@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "FactSphere · Search hallucination hint",
+  "version": "1.0.0",
+  "description": "After a Google search, shows FactSphere hallucination risk and opens the full FactSphere UI.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "http://localhost:5050/*",
+    "http://127.0.0.1:5050/*",
+    "https://www.google.com/*",
+    "https://www.google.co.uk/*",
+    "https://www.google.ca/*",
+    "https://www.google.de/*",
+    "https://www.google.fr/*",
+    "https://www.google.com.au/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.google.com/search*",
+        "https://www.google.co.uk/search*",
+        "https://www.google.ca/search*",
+        "https://www.google.de/search*",
+        "https://www.google.fr/search*",
+        "https://www.google.com.au/search*"
+      ],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "FactSphere settings",
+    "default_popup": "popup.html"
+  }
+}

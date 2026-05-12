@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FactSphere</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 12px; width: 320px; background: #12121a; color: #e8e8ef; }
+    h1 { font-size: 14px; margin: 0 0 10px; font-weight: 700; }
+    .section { margin-top: 14px; padding-top: 12px; border-top: 1px solid #2a2a38; }
+    .section-title { font-size: 11px; font-weight: 700; color: #c8c8d8; letter-spacing: 0.04em; text-transform: uppercase; margin: 0 0 6px; }
+    .section-desc { font-size: 10px; color: #6c6c7c; margin: 0 0 8px; line-height: 1.35; }
+    label { display: block; font-size: 11px; color: #9898a8; margin: 8px 0 4px; }
+    input, select { width: 100%; box-sizing: border-box; padding: 8px; border-radius: 8px; border: 1px solid #333; background: #1a1a24; color: #eee; font-size: 12px; }
+    button { margin-top: 12px; width: 100%; padding: 10px; border: none; border-radius: 10px; background: linear-gradient(145deg, #00c8ff, #7b2ff7); color: #fff; font-weight: 700; cursor: pointer; font-size: 12px; }
+    button:hover { filter: brightness(1.08); }
+    .ok { color: #8ef4a8; font-size: 11px; margin-top: 8px; min-height: 14px; }
+    .hint { font-size: 10px; color: #6c6c7c; margin-top: 10px; line-height: 1.4; }
+    a { color: #7ecbff; }
+  </style>
+</head>
+<body>
+  <h1>FactSphere extension</h1>
+  <label for="groq">Groq API key (required)</label>
+  <input id="groq" type="password" autocomplete="off" placeholder="gsk_..." />
+  <label for="backend">FactSphere backend URL</label>
+  <input id="backend" type="text" placeholder="http://localhost:5050" />
+  <label for="model">Model</label>
+  <select id="model">
+    <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile</option>
+    <option value="llama-3.1-8b-instant">llama-3.1-8b-instant</option>
+    <option value="meta-llama/llama-4-scout-17b-16e-instruct">llama-4-scout-17b</option>
+    <option value="qwen/qwen3-32b">qwen3-32b</option>
+  </select>
+
+  <div class="section">
+    <div class="section-title">Google Programmable Search</div>
+    <p class="section-desc">Optional. Add both to include Google results via the Custom Search JSON API (same as the FactSphere web UI).</p>
+    <label for="gkey">Google API key (Custom Search)</label>
+    <input id="gkey" type="password" autocomplete="off" placeholder="AIza…" />
+    <label for="gcx">Search Engine ID (cx)</label>
+    <input id="gcx" type="text" autocomplete="off" placeholder="e.g. 017576662512468239146:omuauf_lfve" />
+  </div>
+
+  <button type="button" id="save">Save</button>
+  <div class="ok" id="status"></div>
+  <p class="hint">Run <code style="background:#222;padding:2px 4px;border-radius:4px">search_backend.py</code> locally. Keys sync to Chrome if signed in. <a href="#" id="open-options">Full options</a></p>
+  <script src="popup.js"></script>
+</body>
+</html>

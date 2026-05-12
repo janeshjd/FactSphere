@@ -602,9 +602,26 @@ def run_generator(state):
 
 def run_verifier(state):
     embedder, _, _ = load_resources()
-    chunks = state.get("chunks") or []
-    answer = state.get("answer", "")
-    ctx    = "\n\n".join(chunks) if chunks else ""
+    chunks  = state.get("chunks") or []
+    answer  = state.get("answer", "")
+    qt      = state.get("query_type", "factual")
+    ctx     = "\n\n".join(chunks) if chunks else ""
+
+    # For speculative/ambiguous queries there is no retrieved context;
+    # skip cosine check and just ask the LLM to verify the answer alone.
+    if qt in ("speculative", "ambiguous") or not chunks:
+        try:
+            raw = groq_call(state["api_key"], state["model"],
+                system='Rate whether the answer is reasonable. Return ONLY JSON: {"verdict":"SUPPORTED","reason":"..."}',
+                user=f"Question: {state['query']}\n\nAnswer: {answer}", as_json=True)
+            parsed  = safe_json(raw, ["verdict", "reason"], {"verdict": "SUPPORTED", "reason": "No context to check."})
+            verdict = parsed["verdict"].upper()
+            reason  = parsed["reason"]
+        except Exception as e:
+            verdict, reason = "SUPPORTED", str(e)
+        return {**state, "verdict": verdict, "verifier_reason": reason, "avg_similarity": 0.0}
+
+    # Factual query with retrieved context — full cosine + LLM check
     try:
         raw = groq_call(state["api_key"], state["model"],
             system='Check if answer is supported by context. Return ONLY JSON: {"verdict":"SUPPORTED","reason":"..."}',
@@ -615,9 +632,10 @@ def run_verifier(state):
     except Exception as e:
         verdict, reason = "NOT_SUPPORTED", str(e)
     aemb    = embedder.encode([answer])
-    cembs   = embedder.encode(chunks) if chunks else np.array([])
-    avg_sim = float(np.mean(cosine_similarity(aemb, cembs)[0])) if len(cembs) > 0 else 0.0
-    if avg_sim < 0.35: verdict = "NOT_SUPPORTED"
+    cembs   = embedder.encode(chunks)
+    avg_sim = float(np.mean(cosine_similarity(aemb, cembs)[0]))
+    if avg_sim < 0.35:
+        verdict = "NOT_SUPPORTED"
     return {**state, "verdict": verdict, "verifier_reason": reason, "avg_similarity": avg_sim}
 
 
@@ -840,14 +858,15 @@ if submit and query.strip():
         )
 
         st.session_state.history.insert(0, {
-            "query":     query,           "model":      GROQ_MODEL,
-            "query_type": state["query_type"],           "reasoning": state["planner_reasoning"],
-            "chunks":    state["chunks"], "sims":       state["similarities"],
-            "answer":    state["answer"], "verdict":    state["verdict"],
-            "ver_reason": state["verifier_reason"],      "avg_sim":  state["avg_similarity"],
-            "iterations": state["iterations"],           "score":    state["confidence_score"],
-            "decision":  state["decision"],              "final_response": state["final_response"],
+            "query":      query,                         "model":      GROQ_MODEL,
+            "query_type": state["query_type"],           "reasoning":  state["planner_reasoning"],
+            "chunks":     state["chunks"],               "sims":       state["similarities"],
+            "answer":     state["answer"],               "verdict":    state["verdict"],
+            "ver_reason": state["verifier_reason"],      "avg_sim":    state["avg_similarity"],
+            "iterations": state["iterations"],           "score":      state["confidence_score"],
+            "decision":   state["decision"],             "final_response": state["final_response"],
         })
+        st.rerun()   # ← force re-render so results section below picks up new history
 
     except Exception as e:
         pipeline_ph.empty()

@@ -1,0 +1,236 @@
+#factsphere-google-widget {
+  position: fixed;
+  right: 20px;
+  bottom: 88px;
+  z-index: 2147483646;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  line-height: 1.35;
+  -webkit-font-smoothing: antialiased;
+}
+
+#factsphere-google-widget .fs-fab {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  padding: 0;
+}
+
+#factsphere-google-widget .fs-fab:hover {
+  transform: scale(1.06);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+}
+
+#factsphere-google-widget .fs-fab--idle {
+  background: linear-gradient(145deg, #3a3a48, #1e1e28);
+}
+
+#factsphere-google-widget .fs-fab--reliable {
+  background: linear-gradient(145deg, #34c759, #248a3d);
+}
+
+#factsphere-google-widget .fs-fab--uncertain {
+  background: linear-gradient(145deg, #ff9f0a, #c76a00);
+}
+
+#factsphere-google-widget .fs-fab--danger {
+  background: linear-gradient(145deg, #ff3b30, #c62828);
+}
+
+#factsphere-google-widget .fs-fab__pct {
+  font-weight: 800;
+  font-size: 0.95rem;
+  letter-spacing: -0.02em;
+}
+
+#factsphere-google-widget .fs-fab__hint {
+  font-size: 0.58rem;
+  text-transform: uppercase;
+  opacity: 0.85;
+  letter-spacing: 0.06em;
+}
+
+#factsphere-google-widget .fs-fab__ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  opacity: 0;
+  animation: fs-pulse 1.6s ease-out infinite;
+  pointer-events: none;
+}
+
+#factsphere-google-widget .fs-fab--idle .fs-fab__ring {
+  opacity: 1;
+  border-color: rgba(120, 200, 255, 0.45);
+}
+
+@keyframes fs-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  70% {
+    transform: scale(1.18);
+    opacity: 0;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+#factsphere-google-widget .fs-panel {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 12px);
+  width: min(300px, calc(100vw - 40px));
+  background: rgba(18, 18, 24, 0.96);
+  color: #e8e8ef;
+  border-radius: 14px;
+  padding: 14px 14px 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(12px);
+}
+
+#factsphere-google-widget .fs-panel[hidden] {
+  display: none !important;
+}
+
+#factsphere-google-widget .fs-panel__head strong {
+  display: block;
+  font-size: 0.95rem;
+}
+
+#factsphere-google-widget .fs-panel__sub {
+  display: block;
+  font-size: 0.72rem;
+  color: #9898a8;
+  margin-top: 2px;
+}
+
+#factsphere-google-widget .fs-panel__msg {
+  margin: 10px 0 0;
+  font-size: 0.8rem;
+  color: #b4b4c0;
+}
+
+#factsphere-google-widget .fs-panel__msg--err {
+  color: #ff8a80;
+}
+
+#factsphere-google-widget .fs-panel__score {
+  margin: 10px 0 0;
+  font-size: 0.85rem;
+}
+
+#factsphere-google-widget .fs-panel__num {
+  font-weight: 800;
+  font-size: 1.05rem;
+}
+
+#factsphere-google-widget .fs-panel__tiny {
+  margin: 6px 0 0;
+  font-size: 0.72rem;
+  color: #7c7c8c;
+}
+
+#factsphere-google-widget .fs-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+#factsphere-google-widget .fs-tag--reliable {
+  background: rgba(52, 199, 89, 0.2);
+  color: #8ef4a8;
+}
+
+#factsphere-google-widget .fs-tag--uncertain {
+  background: rgba(255, 159, 10, 0.2);
+  color: #ffd18a;
+}
+
+#factsphere-google-widget .fs-tag--danger {
+  background: rgba(255, 59, 48, 0.2);
+  color: #ffb4ae;
+}
+
+#factsphere-google-widget .fs-panel__types {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+#factsphere-google-widget .fs-panel__types-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #7c7c8c;
+}
+
+#factsphere-google-widget .fs-type-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+#factsphere-google-widget .fs-type {
+  display: block;
+  text-align: center;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-decoration: none;
+  color: #fff;
+  transition: filter 0.15s ease, transform 0.15s ease;
+}
+
+#factsphere-google-widget .fs-type:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+#factsphere-google-widget .fs-type--reliable {
+  background: rgba(52, 199, 89, 0.35);
+  border: 1px solid rgba(52, 199, 89, 0.5);
+}
+
+#factsphere-google-widget .fs-type--uncertain {
+  background: rgba(255, 159, 10, 0.3);
+  border: 1px solid rgba(255, 159, 10, 0.5);
+}
+
+#factsphere-google-widget .fs-type--hallucinated {
+  background: rgba(255, 59, 48, 0.32);
+  border: 1px solid rgba(255, 59, 48, 0.55);
+}
+
+#factsphere-google-widget .fs-panel__link {
+  display: block;
+  margin-top: 10px;
+  font-size: 0.78rem;
+  color: #7ecbff;
+  text-decoration: none;
+  text-align: center;
+}
+
+#factsphere-google-widget .fs-panel__link:hover {
+  text-decoration: underline;
+}
